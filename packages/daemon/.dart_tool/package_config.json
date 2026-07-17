@@ -1,0 +1,28 @@
+{
+  "configVersion": 2,
+  "packages": [
+    {
+      "name": "lints",
+      "rootUri": "file:///D:/02%20Program%20Files/pub-cache/hosted/pub.dev/lints-4.0.0",
+      "packageUri": "lib/",
+      "languageVersion": "3.1"
+    },
+    {
+      "name": "scrcpy_core",
+      "rootUri": "../../core",
+      "packageUri": "lib/",
+      "languageVersion": "3.0"
+    },
+    {
+      "name": "scrcpy_daemon",
+      "rootUri": "../",
+      "packageUri": "lib/",
+      "languageVersion": "3.0"
+    }
+  ],
+  "generator": "pub",
+  "generatorVersion": "3.8.1",
+  "flutterRoot": "file:///D:/02%20Program%20Files/flutter-sdk/flutter",
+  "flutterVersion": "3.32.2",
+  "pubCache": "file:///D:/02%20Program%20Files/pub-cache/"
+}

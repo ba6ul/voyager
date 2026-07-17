@@ -1,0 +1,28 @@
+{
+  "roots": [
+    "scrcpy_daemon"
+  ],
+  "packages": [
+    {
+      "name": "scrcpy_daemon",
+      "version": "0.1.0",
+      "dependencies": [
+        "scrcpy_core"
+      ],
+      "devDependencies": [
+        "lints"
+      ]
+    },
+    {
+      "name": "lints",
+      "version": "4.0.0",
+      "dependencies": []
+    },
+    {
+      "name": "scrcpy_core",
+      "version": "0.1.0",
+      "dependencies": []
+    }
+  ],
+  "configVersion": 1
+}
