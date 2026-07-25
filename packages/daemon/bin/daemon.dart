@@ -206,11 +206,17 @@ Future<void> main(List<String> args) async {
           final serial = requireSerial();
           final entry = knownWireless[serial];
           if (entry == null) throw 'no cached wireless info for $serial';
+          stdout.writeln('[r] manual retry requested for ${entry.networkSerial}');
           unawaited(reconnector.runOnce(ReconnectSnapshot(
             cached: {serial: entry},
             live: known,
             handoffInFlight: handoffInFlight,
-          )));
+          )).then((reconnected) {
+            stdout.writeln(reconnected.isEmpty
+                ? '[r] manual retry for ${entry.networkSerial} did not succeed'
+                : '[r] manual retry succeeded for ${entry.networkSerial}; '
+                    'waiting for track-devices to confirm');
+          }));
           return {'started': true};
         case IpcCommands.getConfig:
           return config.toJson();
