@@ -1,9 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 
-// 1. Define the default fallback port constant
-const int kDefaultIpcPort = 38765;
-
 /// Manages persistent configuration for the background daemon.
 ///
 /// Settings are serialized as JSON and stored within the platform's user 
@@ -18,7 +15,6 @@ class DaemonConfig {
     required this.adbPath,
     required this.scrcpyPath,
     required this.autoLaunch,
-    required this.ipcPort,
     required this.scrcpyArgs,
   });
 
@@ -31,8 +27,6 @@ class DaemonConfig {
   /// Milestone 2 behavior: launch scrcpy the moment a ready device appears.
   /// The popup UI will later set this to false and take over.
   final bool autoLaunch;
-
-  final int ipcPort; // default kDefaultIpcPort (38765)
 
   /// Extra flags passed to every scrcpy launch,
   /// e.g. ["--stay-awake", "--turn-screen-off"].
@@ -57,7 +51,6 @@ class DaemonConfig {
             ]) ??
             'scrcpy',
         autoLaunch: true,
-        ipcPort: kDefaultIpcPort,
         scrcpyArgs: const [],
       );
 
@@ -77,7 +70,6 @@ class DaemonConfig {
         adbPath: (json['adbPath'] as String?) ?? base.adbPath,
         scrcpyPath: (json['scrcpyPath'] as String?) ?? base.scrcpyPath,
         autoLaunch: (json['autoLaunch'] as bool?) ?? base.autoLaunch,
-        ipcPort: (json['ipcPort'] as int?) ?? base.ipcPort,
         scrcpyArgs: ((json['scrcpyArgs'] as List?) ?? const [])
             .map((e) => e.toString())
             .toList(),
@@ -96,7 +88,6 @@ class DaemonConfig {
       'adbPath': adbPath,
       'scrcpyPath': scrcpyPath,
       'autoLaunch': autoLaunch,
-      'ipcPort': ipcPort,
       'scrcpyArgs': scrcpyArgs,
     }));
   }

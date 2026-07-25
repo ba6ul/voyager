@@ -1,0 +1,7 @@
+name: scrcpy_ipc
+description: Shared IPC protocol (messages, server, client) between the scrcpy_gui daemon and UI.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.0.0
