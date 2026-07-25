@@ -74,6 +74,9 @@ Future<void> main(List<String> args) async {
         'mirroring': launcher.isRunning(d.serial),
       };
 
+  List<Map<String, dynamic>> knownDevicesJson() =>
+      knownWireless.values.map((d) => d.toJson()).toList();
+
   Future<void> rememberWireless(String usbSerial, String networkSerial) async {
     final parts = networkSerial.split(':');
     final model = modelNames[usbSerial] ?? await client.model(usbSerial);
@@ -87,6 +90,7 @@ Future<void> main(List<String> args) async {
       ),
     };
     await KnownDevicesStore.save(knownWireless);
+    ipc.broadcast(IpcEvent.knownDevices(knownDevicesJson()));
   }
 
   Future<void> runGoWireless(String serial) async {
@@ -162,7 +166,10 @@ Future<void> main(List<String> args) async {
 
   ipc = IpcServer(
     onLog: (message) => stdout.writeln('[ipc] $message'),
-    snapshot: () => [IpcEvent.devices(known.values.map(deviceJson).toList())],
+    snapshot: () => [
+      IpcEvent.devices(known.values.map(deviceJson).toList()),
+      IpcEvent.knownDevices(knownDevicesJson()),
+    ],
     onCommand: (request) async {
       String requireSerial() {
         final s = request.args['serial'];
@@ -195,6 +202,16 @@ Future<void> main(List<String> args) async {
         case IpcCommands.usbMode:
           await runUsbMode(requireSerial());
           return {};
+        case IpcCommands.retryReconnect:
+          final serial = requireSerial();
+          final entry = knownWireless[serial];
+          if (entry == null) throw 'no cached wireless info for $serial';
+          unawaited(reconnector.runOnce(ReconnectSnapshot(
+            cached: {serial: entry},
+            live: known,
+            handoffInFlight: handoffInFlight,
+          )));
+          return {'started': true};
         case IpcCommands.getConfig:
           return config.toJson();
         case IpcCommands.setConfig:
