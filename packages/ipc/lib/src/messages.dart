@@ -13,6 +13,7 @@ abstract final class IpcCommands {
   static const goWireless = 'goWireless'; // args: {serial}
   static const handoff = 'handoff'; // args: {serial}
   static const usbMode = 'usbMode'; // args: {serial}
+  static const retryReconnect = 'retryReconnect'; // args: {serial} (== cached usbSerial)
   static const getConfig = 'getConfig';
   static const setConfig = 'setConfig'; // args: {config: {...}}
   static const quit = 'quit';
@@ -44,6 +45,10 @@ abstract final class IpcEvents {
 
   /// Free-form log line for the UI console. data: {message}
   static const log = 'log';
+
+  /// Devices that have gone wireless before, whether or not they're
+  /// currently reachable. data: {devices: [{usbSerial, model, lastIp, lastPort}]}
+  static const knownDevices = 'knownDevices';
 }
 
 /// A command sent from a client to the daemon.
@@ -163,6 +168,9 @@ class IpcEvent {
 
   static IpcEvent log(String message) =>
       IpcEvent(IpcEvents.log, {'message': message});
+
+  static IpcEvent knownDevices(List<Map<String, dynamic>> devices) =>
+      IpcEvent(IpcEvents.knownDevices, {'devices': devices});
 }
 
 /// Encodes any message map as one wire line (JSON + newline).
