@@ -216,6 +216,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  scrcpy_ipc:
+    dependency: "direct main"
+    description:
+      path: "../ipc"
+      relative: true
+    source: path
+    version: "0.1.0"
   shelf:
     dependency: transitive
     description:

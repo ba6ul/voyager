@@ -9,6 +9,8 @@ environment:
 dependencies:
   scrcpy_core:
     path: ../core
+  scrcpy_ipc:
+    path: ../ipc
 
 dev_dependencies:
   lints: ^4.0.0

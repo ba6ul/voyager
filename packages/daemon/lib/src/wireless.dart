@@ -21,12 +21,18 @@ class WirelessManager {
 
   /// Runs the whole go-wireless flow for [serial]. Returns the network
   /// serial (`ip:5555`) on success, null on timeout.
+  ///
+  /// [onStatus], if given, is called at each stage transition (see
+  /// `IpcEvents.wirelessStatus` in packages/ipc for the stage names) so a
+  /// caller can relay progress to a UI without scraping stdout.
   Future<String?> goWireless(
     String serial, {
     Duration timeout = const Duration(minutes: 3),
+    void Function(String stage, [String? detail])? onStatus,
   }) async {
     // Grab the phone's WiFi IP first (works only in same-WiFi mode; null
     // when WiFi is off or the phone will act as the hotspot).
+    onStatus?.call('readingWifiIp');
     String? phoneWifiIp;
     try {
       phoneWifiIp = await client.wifiIp(serial);
@@ -34,12 +40,14 @@ class WirelessManager {
 
     stdout.writeln('[w] switching ${serial} to TCP mode...');
     await client.tcpip(serial, devicePort);
+    onStatus?.call('tcpipEnabled');
 
     stdout.writeln('''
 [w] done. Now either:
 [w]   a) turn on the phone's hotspot and connect this PC to it, or
 [w]   b) keep phone and PC on the same WiFi
 [w] then unplug the USB cable. Trying to connect automatically...''');
+    onStatus?.call('waitingForHotspot');
 
     final tried = <String>{};
     final deadline = DateTime.now().add(timeout);
@@ -53,6 +61,7 @@ class WirelessManager {
       for (final ip in candidates) {
         tried.add(ip);
         stdout.writeln('[w] trying $ip:$devicePort ...');
+        onStatus?.call('connecting', '$ip:$devicePort');
         try {
           final message = await client
               .connectDevice(ip, devicePort)
@@ -61,6 +70,7 @@ class WirelessManager {
             final networkSerial = '$ip:$devicePort';
             if (await _isReady(networkSerial)) {
               stdout.writeln('[w] connected wirelessly: $networkSerial');
+              onStatus?.call('connected', networkSerial);
               return networkSerial;
             }
           }
@@ -77,6 +87,7 @@ class WirelessManager {
       }
     }
     stdout.writeln('[w] gave up after ${timeout.inMinutes} minutes');
+    onStatus?.call('failed', 'timed out after ${timeout.inMinutes} minutes');
     return null;
   }
 

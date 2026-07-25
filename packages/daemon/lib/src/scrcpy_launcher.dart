@@ -14,10 +14,19 @@ import 'dart:io';
 /// 2. Isolation: Pipes and discards standard output while filtering error streams.
 /// 3. Cleanup: Synchronizes internal state hooks natively upon process exit.
 class ScrcpyLauncher {
-  ScrcpyLauncher({required this.scrcpyPath, this.baseArgs = const []});
+  ScrcpyLauncher({
+    required this.scrcpyPath,
+    this.baseArgs = const [],
+    this.onExit,
+  });
 
   final String scrcpyPath;
   final List<String> baseArgs;
+
+  /// Called when a launched scrcpy process exits, whether the daemon asked
+  /// it to (`stop`/`stopAll`) or it died on its own (e.g. the adb transport
+  /// dropping out from under it during a `tcpip` restart).
+  final void Function(String serial, int exitCode)? onExit;
 
   final Map<String, Process> _running = {};
 
@@ -54,6 +63,7 @@ class ScrcpyLauncher {
     unawaited(process.exitCode.then((code) {
       _running.remove(serial);
       stdout.writeln('[x] scrcpy for $serial closed (exit $code)');
+      onExit?.call(serial, code);
     }));
     return true;
   }

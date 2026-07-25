@@ -11,6 +11,7 @@ abstract final class IpcCommands {
   static const stop = 'stop'; // args: {serial}
   static const stopAll = 'stopAll';
   static const goWireless = 'goWireless'; // args: {serial}
+  static const handoff = 'handoff'; // args: {serial}
   static const usbMode = 'usbMode'; // args: {serial}
   static const getConfig = 'getConfig';
   static const setConfig = 'setConfig'; // args: {config: {...}}
@@ -19,7 +20,7 @@ abstract final class IpcCommands {
 
 /// Event names the daemon broadcasts.
 abstract final class IpcEvents {
-  /// Full device snapshot. data: {devices: [{serial, state, model?}]}
+  /// Full device snapshot. data: {devices: [{serial, state, model?, mirroring}]}
   static const devices = 'devices';
 
   /// A device just became ready. data: {serial, model?}
@@ -35,6 +36,11 @@ abstract final class IpcEvents {
   /// Stages: readingWifiIp, tcpipEnabled, waitingForHotspot, connecting,
   ///         connected (detail = network serial), failed (detail = reason)
   static const wirelessStatus = 'wirelessStatus';
+
+  /// Progress of an in-flight handoff (USB -> wireless). data: {serial, stage, detail?}
+  /// Stages: readingWifiIp, tcpipEnabled, connecting, launchingWireless,
+  ///         closingUsb, complete (detail = network serial), failed (detail = reason)
+  static const handoffStatus = 'handoffStatus';
 
   /// Free-form log line for the UI console. data: {message}
   static const log = 'log';
@@ -142,6 +148,14 @@ class IpcEvent {
   static IpcEvent wirelessStatus(String serial, String stage,
           [String? detail]) =>
       IpcEvent(IpcEvents.wirelessStatus, {
+        'serial': serial,
+        'stage': stage,
+        if (detail != null) 'detail': detail,
+      });
+
+  static IpcEvent handoffStatus(String serial, String stage,
+          [String? detail]) =>
+      IpcEvent(IpcEvents.handoffStatus, {
         'serial': serial,
         'stage': stage,
         if (detail != null) 'detail': detail,

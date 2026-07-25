@@ -7,6 +7,7 @@ class FakeAdbServer {
 
   final ServerSocket _server;
   final _trackClients = <Socket>[];
+  String _devicesPayload = 'FAKESERIAL\tdevice\n';
 
   int get port => _server.port;
 
@@ -46,7 +47,7 @@ class FakeAdbServer {
       return false;
     }
     if (service == 'host:devices') {
-      _okayWithPayload(socket, 'FAKESERIAL\tdevice\n');
+      _okayWithPayload(socket, _devicesPayload);
       _end(socket);
       return false;
     }
@@ -102,6 +103,14 @@ class FakeAdbServer {
     _hexPayload(socket, message);
     _end(socket);
     return false;
+  }
+
+  /// Updates what `host:devices` reports from now on, and pushes the same
+  /// snapshot to any live `track-devices` subscribers, as if the device list
+  /// had actually changed.
+  void setDevices(String payload) {
+    _devicesPayload = payload;
+    pushTrackSnapshot(payload);
   }
 
   void pushTrackSnapshot(String payload) {
