@@ -2,7 +2,9 @@ import 'package:scrcpy_ipc/scrcpy_ipc.dart';
 
 import '../../../core/ipc/ipc_connection.dart';
 import '../domain/device_repository.dart';
+import '../domain/entities/cached_device.dart';
 import '../domain/entities/device.dart';
+import 'models/cached_device_model.dart';
 import 'models/device_model.dart';
 
 /// Implements [DeviceRepository] over the daemon's IPC protocol.
@@ -47,6 +49,14 @@ class DaemonDeviceRepository implements DeviceRepository {
           ));
 
   @override
+  Stream<List<CachedDevice>> get knownDevices => _connection.events
+      .where((e) => e.event == IpcEvents.knownDevices)
+      .map((e) => (e.data['devices'] as List)
+          .cast<Map<String, dynamic>>()
+          .map(cachedDeviceFromJson)
+          .toList());
+
+  @override
   Future<bool> launch(String serial) async {
     final result =
         await _connection.send(IpcCommands.launch, {'serial': serial});
@@ -68,6 +78,10 @@ class DaemonDeviceRepository implements DeviceRepository {
   @override
   Future<void> usbMode(String serial) =>
       _connection.send(IpcCommands.usbMode, {'serial': serial});
+
+  @override
+  Future<void> retryReconnect(String usbSerial) =>
+      _connection.send(IpcCommands.retryReconnect, {'serial': usbSerial});
 
   @override
   void dispose() => _connection.dispose();

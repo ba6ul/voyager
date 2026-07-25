@@ -22,6 +22,9 @@ class DeviceListCubit extends Cubit<DeviceListState> {
       }),
       _repository.wirelessStatus.listen((e) => _onStatus('wireless', e)),
       _repository.handoffStatus.listen((e) => _onStatus('handoff', e)),
+      _repository.knownDevices.listen((knownDevices) => emit(
+            state.copyWith(knownDevices: knownDevices),
+          )),
     ];
     unawaited(_repository.connect());
   }
@@ -45,6 +48,8 @@ class DeviceListCubit extends Cubit<DeviceListState> {
   Future<void> stop(String serial) => _repository.stop(serial);
   Future<void> goWireless(String serial) => _repository.goWireless(serial);
   Future<void> handoff(String serial) => _repository.handoff(serial);
+  Future<void> retryReconnect(String usbSerial) =>
+      _repository.retryReconnect(usbSerial);
 
   @override
   Future<void> close() async {

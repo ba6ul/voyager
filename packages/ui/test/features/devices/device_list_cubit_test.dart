@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scrcpy_ui/features/devices/domain/device_repository.dart';
+import 'package:scrcpy_ui/features/devices/domain/entities/cached_device.dart';
 import 'package:scrcpy_ui/features/devices/domain/entities/device.dart';
 import 'package:scrcpy_ui/features/devices/presentation/cubit/device_list_cubit.dart';
 import 'package:scrcpy_ui/features/devices/presentation/cubit/device_list_state.dart';
@@ -14,11 +15,13 @@ class FakeDeviceRepository implements DeviceRepository {
   final deviceReadyController = StreamController<String>.broadcast();
   final wirelessStatusController = StreamController<StatusEvent>.broadcast();
   final handoffStatusController = StreamController<StatusEvent>.broadcast();
+  final knownDevicesController = StreamController<List<CachedDevice>>.broadcast();
 
   final List<String> playedSerials = [];
   final List<String> stoppedSerials = [];
   final List<String> wirelessSerials = [];
   final List<String> handoffSerials = [];
+  final List<String> retryReconnectSerials = [];
   bool connectCalled = false;
   bool disposed = false;
 
@@ -57,6 +60,13 @@ class FakeDeviceRepository implements DeviceRepository {
 
   @override
   Future<void> usbMode(String serial) async {}
+
+  @override
+  Stream<List<CachedDevice>> get knownDevices => knownDevicesController.stream;
+
+  @override
+  Future<void> retryReconnect(String usbSerial) async =>
+      retryReconnectSerials.add(usbSerial);
 
   @override
   void dispose() => disposed = true;
@@ -139,9 +149,60 @@ void main() {
     expect(repository.handoffSerials, ['ABC123']);
   });
 
+  test('updates known devices from the repository stream', () async {
+    final cubit = DeviceListCubit(repository);
+    const cached = CachedDevice(
+      usbSerial: 'ABC123',
+      model: 'Pixel 7',
+      lastIp: '192.168.1.42',
+      lastPort: 5555,
+    );
+
+    repository.knownDevicesController.add([cached]);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(cubit.state.knownDevices, [cached]);
+  });
+
+  test('retryReconnect delegates to the repository', () async {
+    final cubit = DeviceListCubit(repository);
+
+    await cubit.retryReconnect('ABC123');
+
+    expect(repository.retryReconnectSerials, ['ABC123']);
+  });
+
   test('disposes the repository when closed', () async {
     final cubit = DeviceListCubit(repository);
     await cubit.close();
     expect(repository.disposed, isTrue);
+  });
+
+  group('DeviceListState.pendingReconnect', () {
+    const cached = CachedDevice(
+      usbSerial: 'ABC123',
+      model: 'Pixel 7',
+      lastIp: '192.168.1.42',
+      lastPort: 5555,
+    );
+
+    test('includes a cached device not present in the live device list', () {
+      const state = DeviceListState(knownDevices: [cached]);
+      expect(state.pendingReconnect, [cached]);
+    });
+
+    test('excludes a cached device already live under its network serial', () {
+      final state = DeviceListState(
+        knownDevices: const [cached],
+        devices: [
+          Device(
+            serial: cached.networkSerial,
+            state: DeviceState.device,
+            mirroring: true,
+          ),
+        ],
+      );
+      expect(state.pendingReconnect, isEmpty);
+    });
   });
 }

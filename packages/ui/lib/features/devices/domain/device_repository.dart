@@ -1,3 +1,4 @@
+import 'entities/cached_device.dart';
 import 'entities/device.dart';
 
 /// Progress of an in-flight wireless or handoff operation for one device.
@@ -29,11 +30,19 @@ abstract class DeviceRepository {
   Stream<StatusEvent> get wirelessStatus;
   Stream<StatusEvent> get handoffStatus;
 
+  /// Devices that have gone wireless before, whether or not they're
+  /// currently reachable.
+  Stream<List<CachedDevice>> get knownDevices;
+
   Future<bool> launch(String serial);
   Future<void> stop(String serial);
   Future<void> goWireless(String serial);
   Future<void> handoff(String serial);
   Future<void> usbMode(String serial);
+
+  /// Fires an immediate reconnect attempt for a cached device, rather than
+  /// waiting for the daemon's periodic background retry.
+  Future<void> retryReconnect(String usbSerial);
 
   void dispose();
 }
