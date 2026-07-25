@@ -5,8 +5,10 @@ import 'dart:io';
 import 'package:scrcpy_core/scrcpy_core.dart';
 import 'package:scrcpy_daemon/src/config.dart';
 import 'package:scrcpy_daemon/src/handoff.dart';
+import 'package:scrcpy_daemon/src/known_devices.dart';
 import 'package:scrcpy_daemon/src/scrcpy_launcher.dart';
 import 'package:scrcpy_daemon/src/wireless.dart';
+import 'package:scrcpy_daemon/src/wireless_reconnector.dart';
 import 'package:scrcpy_ipc/scrcpy_ipc.dart';
 
 /// Main execution engine and event coordinator for the scrcpy background daemon.
@@ -26,12 +28,15 @@ Future<void> main(List<String> args) async {
 
   final client = AdbClient(adbPath: adbPath);
   late final IpcServer ipc;
+  late final Timer reconnectTimer;
   final launcher = ScrcpyLauncher(
     scrcpyPath: config.scrcpyPath,
     baseArgs: config.scrcpyArgs,
     onExit: (serial, code) => ipc.broadcast(IpcEvent.scrcpyExited(serial, code)),
   );
   final wireless = WirelessManager(client);
+  var knownWireless = await KnownDevicesStore.load();
+  final reconnector = WirelessReconnector(client: client);
 
   stdout.writeln('config: ${DaemonConfig.configFile().path}');
   stdout.writeln('adb: $adbPath | scrcpy: ${config.scrcpyPath} | '
@@ -45,12 +50,44 @@ Future<void> main(List<String> args) async {
   // and without this guard that reconnect looks like a fresh plug-in.
   final handoffInFlight = <String>{};
 
+  // Assigned before ipc.start() below, so a `quit` command can never arrive
+  // while this is still unassigned.
+  reconnectTimer = reconnector.startPeriodic(
+    const Duration(seconds: 6),
+    () => ReconnectSnapshot(
+      cached: knownWireless,
+      live: known,
+      handoffInFlight: handoffInFlight,
+    ),
+    onTick: (reconnected) {
+      for (final serial in reconnected) {
+        stdout.writeln('[r] reconnect probe succeeded for $serial; '
+            'waiting for track-devices to confirm');
+      }
+    },
+  );
+
   Map<String, dynamic> deviceJson(AdbDevice d) => {
         'serial': d.serial,
         'state': d.state.name,
         if (modelNames[d.serial] != null) 'model': modelNames[d.serial],
         'mirroring': launcher.isRunning(d.serial),
       };
+
+  Future<void> rememberWireless(String usbSerial, String networkSerial) async {
+    final parts = networkSerial.split(':');
+    final model = modelNames[usbSerial] ?? await client.model(usbSerial);
+    knownWireless = {
+      ...knownWireless,
+      usbSerial: KnownWirelessDevice(
+        usbSerial: usbSerial,
+        model: model,
+        lastIp: parts[0],
+        lastPort: int.parse(parts[1]),
+      ),
+    };
+    await KnownDevicesStore.save(knownWireless);
+  }
 
   Future<void> runGoWireless(String serial) async {
     final networkSerial = await wireless.goWireless(
@@ -62,6 +99,8 @@ Future<void> main(List<String> args) async {
     // autoLaunch opens the mirror by itself.
     if (networkSerial == null) {
       stdout.writeln('[w] gave up trying to reach $serial wirelessly');
+    } else {
+      await rememberWireless(serial, networkSerial);
     }
   }
 
@@ -73,7 +112,7 @@ Future<void> main(List<String> args) async {
     final name = modelNames[serial] ?? await client.model(serial);
     handoffInFlight.add(serial);
     try {
-      await handoff(
+      final wirelessSerial = await handoff(
         client: client,
         launcher: launcher,
         usbSerial: serial,
@@ -81,6 +120,9 @@ Future<void> main(List<String> args) async {
         onStatus: (stage, [detail]) =>
             ipc.broadcast(IpcEvent.handoffStatus(serial, stage, detail)),
       );
+      if (wirelessSerial != null) {
+        await rememberWireless(serial, wirelessSerial);
+      }
     } finally {
       handoffInFlight.remove(serial);
     }
@@ -169,6 +211,7 @@ Future<void> main(List<String> args) async {
           // Delay past the reply write (which happens on the microtask
           // queue right after this returns) so the client sees the ack.
           unawaited(Future<void>.delayed(const Duration(milliseconds: 50), () {
+            reconnectTimer.cancel();
             launcher.stopAll();
             exit(0);
           }));
@@ -194,6 +237,7 @@ Future<void> main(List<String> args) async {
       'w=wireless h=handoff u=usb l=list q=quit\n');
 
   ProcessSignal.sigint.watch().listen((_) {
+    reconnectTimer.cancel();
     launcher.stopAll();
     exit(0);
   });
@@ -239,6 +283,7 @@ Future<void> main(List<String> args) async {
         }
         break;
       case 'q':
+        reconnectTimer.cancel();
         launcher.stopAll();
         exit(0);
       default:
