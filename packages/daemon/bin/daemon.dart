@@ -29,10 +29,19 @@ Future<void> main(List<String> args) async {
   final client = AdbClient(adbPath: adbPath);
   late final IpcServer ipc;
   late final Timer reconnectTimer;
+  // Assigned once deviceJson/known exist below; closing a scrcpy window
+  // (its own X button, a crash) doesn't change adb's connection state, so
+  // the track-devices loop never re-broadcasts on its own. Without this,
+  // the UI's cached `mirroring` flag goes stale: it keeps showing "Stop"
+  // for a device that already stopped mirroring.
+  late final void Function() broadcastDevices;
   final launcher = ScrcpyLauncher(
     scrcpyPath: config.scrcpyPath,
     baseArgs: config.scrcpyArgs,
-    onExit: (serial, code) => ipc.broadcast(IpcEvent.scrcpyExited(serial, code)),
+    onExit: (serial, code) {
+      ipc.broadcast(IpcEvent.scrcpyExited(serial, code));
+      broadcastDevices();
+    },
   );
   final wireless = WirelessManager(client);
   var knownWireless = await KnownDevicesStore.load();
@@ -82,6 +91,9 @@ Future<void> main(List<String> args) async {
         if (modelNames[d.serial] != null) 'model': modelNames[d.serial],
         'mirroring': launcher.isRunning(d.serial),
       };
+
+  broadcastDevices =
+      () => ipc.broadcast(IpcEvent.devices(known.values.map(deviceJson).toList()));
 
   List<Map<String, dynamic>> knownDevicesJson() =>
       knownWireless.values.map((d) => d.toJson()).toList();
@@ -366,7 +378,7 @@ Future<void> main(List<String> args) async {
           }
         }
         known = current;
-        ipc.broadcast(IpcEvent.devices(known.values.map(deviceJson).toList()));
+        broadcastDevices();
       }
       stdout.writeln('track-devices stream closed, reconnecting...');
     } catch (e) {
