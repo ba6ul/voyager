@@ -49,6 +49,15 @@ Future<void> main(List<String> args) async {
   // and then reconnects the USB transport on its own (cable's still in),
   // and without this guard that reconnect looks like a fresh plug-in.
   final handoffInFlight = <String>{};
+  // Debounces auto-launch: adb's own track-devices stream can keep flapping
+  // (device -> offline -> unknown -> ... -> device) for a brief moment right
+  // after a plug/replug as the connection actually settles. Launching the
+  // instant the first `device` report arrives lands scrcpy's connection
+  // attempt mid-flap and it fails, even though nothing is actually wrong.
+  // Each becameReady re-triggers this and resets the timer, so a launch only
+  // fires once the state has genuinely held steady.
+  const autoLaunchDebounce = Duration(milliseconds: 500);
+  final pendingLaunchTimers = <String, Timer>{};
 
   // Assigned before ipc.start() below, so a `quit` command can never arrive
   // while this is still unassigned.
@@ -145,6 +154,28 @@ Future<void> main(List<String> args) async {
     }
   }
 
+  void scheduleAutoLaunch(String serial, String name) {
+    pendingLaunchTimers.remove(serial)?.cancel();
+    pendingLaunchTimers[serial] = Timer(autoLaunchDebounce, () async {
+      pendingLaunchTimers.remove(serial);
+      final current = known[serial];
+      if (current == null || !current.isReady) {
+        // Flapped away again before settling; the next becameReady (if any)
+        // will schedule a fresh attempt.
+        return;
+      }
+      if (!config.autoLaunch) return;
+      if (handoffInFlight.contains(serial)) {
+        stdout.writeln('[=] skipping auto-launch for $serial; handoff in progress');
+        return;
+      }
+      final launched = await launcher.launch(serial, windowTitle: name);
+      stdout.writeln(launched
+          ? '[>] scrcpy launched for $name'
+          : '[=] scrcpy already running for $name');
+    });
+  }
+
   Future<void> onReady(AdbDevice device) async {
     final name = await client.model(device.serial);
     modelNames[device.serial] = name;
@@ -152,16 +183,7 @@ Future<void> main(List<String> args) async {
     stdout.writeln('[+] $name (${device.serial}) connected via $kind');
     ipc.broadcast(IpcEvent.deviceReady(device.serial, model: name));
 
-    if (!config.autoLaunch) return;
-    if (handoffInFlight.contains(device.serial)) {
-      stdout.writeln(
-          '[=] skipping auto-launch for ${device.serial}; handoff in progress');
-      return;
-    }
-    final launched = await launcher.launch(device.serial, windowTitle: name);
-    stdout.writeln(launched
-        ? '[>] scrcpy launched for $name'
-        : '[=] scrcpy already running for $name');
+    scheduleAutoLaunch(device.serial, name);
   }
 
   ipc = IpcServer(
@@ -340,6 +362,7 @@ Future<void> main(List<String> args) async {
           if (!current.containsKey(serial)) {
             stdout.writeln('[-] $serial disconnected');
             ipc.broadcast(IpcEvent.deviceGone(serial));
+            pendingLaunchTimers.remove(serial)?.cancel();
           }
         }
         known = current;

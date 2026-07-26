@@ -45,6 +45,17 @@ Future<String?> handoff({
     stdout.writeln('[h] switching to TCP mode...');
     await client.tcpip(usbSerial).timeout(const Duration(seconds: 5));
     onStatus?.call('tcpipEnabled');
+  } on TimeoutException {
+    // adb serializes access to a device's transport, so this can time out
+    // for a real, caused reason rather than a lost ack: if scrcpy's own
+    // process was still mid-connection on this same transport when handoff
+    // started (launching does not mean connected - see ScrcpyLauncher docs),
+    // our separate tcpip request has to wait behind it. The phone very
+    // likely did switch to TCP mode regardless, so proceed to the connect
+    // step instead of aborting; a genuine tcpip failure (bad serial, adb
+    // rejecting the request) throws AdbServerException, not this.
+    stdout.writeln('[h] tcpip ack delayed, proceeding anyway (device likely switched)');
+    onStatus?.call('tcpipEnabled');
   } catch (e) {
     stdout.writeln('[h] tcpip failed: $e');
     onStatus?.call('failed', 'tcpip failed: $e');
