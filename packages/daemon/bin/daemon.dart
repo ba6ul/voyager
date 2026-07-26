@@ -291,7 +291,7 @@ Future<void> main(List<String> args) async {
   await client.ensureServerRunning();
   stdout.writeln('adb server protocol version: ${await client.serverVersion()}');
   stdout.writeln('watching for devices | commands: '
-      'w=wireless h=handoff u=usb l=list q=quit\n');
+      'w=wireless h=handoff u=usb p=play l=list q=quit\n');
 
   ProcessSignal.sigint.watch().listen((_) {
     reconnectTimer.cancel();
@@ -331,6 +331,23 @@ Future<void> main(List<String> args) async {
           await runUsbMode(d.serial);
         }
         break;
+      case 'p':
+        final toLaunch = known.values
+            .where((d) => d.isReady && !launcher.isRunning(d.serial))
+            .toList();
+        if (toLaunch.isEmpty) {
+          stdout.writeln('[p] nothing to launch; every ready device is '
+              'already mirroring');
+          break;
+        }
+        for (final d in toLaunch) {
+          final name = modelNames[d.serial] ?? d.serial;
+          final launched = await launcher.launch(d.serial, windowTitle: name);
+          stdout.writeln(launched
+              ? '[>] scrcpy launched for $name'
+              : '[=] scrcpy already running for $name');
+        }
+        break;
       case 'l':
         if (known.isEmpty) stdout.writeln('(no devices)');
         for (final d in known.values) {
@@ -345,7 +362,7 @@ Future<void> main(List<String> args) async {
         exit(0);
       default:
         if (command.isNotEmpty) {
-          stdout.writeln('commands: w=wireless h=handoff u=usb l=list q=quit');
+          stdout.writeln('commands: w=wireless h=handoff u=usb p=play l=list q=quit');
         }
     }
   });
