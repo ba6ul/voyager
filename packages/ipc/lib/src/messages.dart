@@ -13,7 +13,9 @@ abstract final class IpcCommands {
   static const goWireless = 'goWireless'; // args: {serial}
   static const handoff = 'handoff'; // args: {serial}
   static const usbMode = 'usbMode'; // args: {serial}
-  static const retryReconnect = 'retryReconnect'; // args: {serial} (== cached usbSerial)
+  // args: {serial} (== cached usbSerial). Replies after one connect attempt
+  // (at most ~5 s) with {outcome: reconnected|unreachable|skipped, address}.
+  static const retryReconnect = 'retryReconnect';
   static const getConfig = 'getConfig';
   static const setConfig = 'setConfig'; // args: {config: {...}}
   static const quit = 'quit';

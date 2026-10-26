@@ -7,7 +7,7 @@ class AppTrayController with TrayListener {
   Future<void> init({required String iconPath}) async {
     trayManager.addListener(this);
     await trayManager.setIcon(iconPath);
-    await trayManager.setToolTip('scrcpy');
+    await trayManager.setToolTip('Voyager');
     await trayManager.setContextMenu(Menu(items: [
       MenuItem(key: 'show', label: 'Show'),
       MenuItem.separator(),

@@ -294,17 +294,28 @@ Future<void> _run(List<String> args) async {
           final entry = knownWireless[serial];
           if (entry == null) throw 'no cached wireless info for $serial';
           stdout.writeln('[r] manual retry requested for ${entry.networkSerial}');
-          unawaited(reconnector.runOnce(ReconnectSnapshot(
-            cached: {serial: entry},
-            live: known,
-            handoffInFlight: handoffInFlight,
-          )).then((reconnected) {
-            stdout.writeln(reconnected.isEmpty
-                ? '[r] manual retry for ${entry.networkSerial} did not succeed'
-                : '[r] manual retry succeeded for ${entry.networkSerial}; '
-                    'waiting for track-devices to confirm');
-          }));
-          return {'started': true};
+          // Answer with the outcome (one bounded `adb connect`, at most its
+          // 5 s timeout) so the UI can show it; it used to reply "started"
+          // and leave the result in this log only.
+          final outcome = await reconnector.retryNow(
+            entry,
+            ReconnectSnapshot(
+              cached: {serial: entry},
+              live: known,
+              handoffInFlight: handoffInFlight,
+            ),
+          );
+          stdout.writeln(switch (outcome) {
+            ManualRetryOutcome.reconnected =>
+              '[r] manual retry succeeded for ${entry.networkSerial}; '
+                  'waiting for track-devices to confirm',
+            ManualRetryOutcome.unreachable =>
+              '[r] manual retry for ${entry.networkSerial} did not succeed',
+            ManualRetryOutcome.skipped =>
+              '[r] manual retry for ${entry.networkSerial} skipped: already '
+                  'connected or a wireless flow is running',
+          });
+          return {'outcome': outcome.name, 'address': entry.networkSerial};
         case IpcCommands.getConfig:
           return config.toJson();
         case IpcCommands.setConfig:

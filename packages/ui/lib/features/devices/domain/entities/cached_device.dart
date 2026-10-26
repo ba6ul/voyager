@@ -19,6 +19,19 @@ class CachedDevice extends Equatable {
 
   String get networkSerial => '$lastIp:$lastPort';
 
+  /// Whether [liveSerial], a serial the daemon lists right now, is this same
+  /// phone. adb names one phone differently per transport, so a plain
+  /// comparison with [networkSerial] misses two of the three forms:
+  /// - `ip:port` (the address it went wireless on),
+  /// - its USB serial (`usbSerial` itself), and
+  /// - the wireless-debugging form `adb-<usbSerial>-<suffix>._adb-tls-connect._tcp`,
+  ///   which embeds the same hardware serial.
+  bool isRepresentedBy(String liveSerial) =>
+      liveSerial == networkSerial ||
+      liveSerial == usbSerial ||
+      (liveSerial.startsWith('adb-$usbSerial-') &&
+          liveSerial.endsWith('._adb-tls-connect._tcp'));
+
   @override
   List<Object?> get props => [usbSerial, model, lastIp, lastPort];
 }
