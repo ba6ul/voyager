@@ -104,6 +104,7 @@ Future<void> _run(List<String> args) async {
   Map<String, dynamic> deviceJson(AdbDevice d) => {
         'serial': d.serial,
         'state': d.state.name,
+        'transport': d.transport.name,
         if (modelNames[d.serial] != null) 'model': modelNames[d.serial],
         'mirroring': launcher.isRunning(d.serial),
       };
@@ -155,7 +156,30 @@ Future<void> _run(List<String> args) async {
       ? '$running is already in progress for this phone'
       : '$running is in progress for this phone, so $requested was not started';
 
+  // Only a phone connected by USB can be switched to TCP mode. An emulator
+  // has nothing to switch, and a phone that is already wireless (an ip:port
+  // address, or wireless debugging) is past that step. Returns why a request
+  // does not apply to [serial], or null if it does.
+  String? notForTransport(String serial, String operation) {
+    final description = switch (AdbTransport.of(serial)) {
+      AdbTransport.usb => null,
+      AdbTransport.network => 'already on a wireless address',
+      AdbTransport.mdns => 'already connected through wireless debugging',
+      AdbTransport.emulator => 'an emulator',
+    };
+    return description == null
+        ? null
+        : '$operation is only for a phone connected by USB; $serial is '
+            '$description';
+  }
+
   String? startGoWireless(String serial) {
+    final unsuitable = notForTransport(serial, InFlightOperations.goWireless);
+    if (unsuitable != null) {
+      stdout.writeln('[w] $unsuitable');
+      ipc.broadcast(IpcEvent.wirelessStatus(serial, 'failed', unsuitable));
+      return unsuitable;
+    }
     final running = inFlight.tryStart(serial, InFlightOperations.goWireless);
     if (running != null) {
       final reason = describeBusy(running, InFlightOperations.goWireless);
@@ -190,6 +214,12 @@ Future<void> _run(List<String> args) async {
   }
 
   String? startHandoff(String serial) {
+    final unsuitable = notForTransport(serial, InFlightOperations.handoff);
+    if (unsuitable != null) {
+      stdout.writeln('[h] $unsuitable');
+      ipc.broadcast(IpcEvent.handoffStatus(serial, 'failed', unsuitable));
+      return unsuitable;
+    }
     final running = inFlight.tryStart(serial, InFlightOperations.handoff);
     if (running != null) {
       final reason = describeBusy(running, InFlightOperations.handoff);
@@ -254,13 +284,20 @@ Future<void> _run(List<String> args) async {
   Future<void> runUsbMode(String serial) async {
     final device = known[serial];
     if (device == null || !device.isReady) return;
-    if (device.isNetwork) {
-      final parts = serial.split(':');
-      await client.disconnectDevice(parts[0], int.parse(parts[1]));
-      stdout.writeln('[u] disconnected $serial');
-    } else {
-      await client.usbMode(serial);
-      stdout.writeln('[u] $serial back to USB-only (port closed)');
+    switch (device.transport) {
+      case AdbTransport.network:
+        // host:port, where the host may be a bracketed IPv6 address.
+        final colon = serial.lastIndexOf(':');
+        final host = serial.substring(0, colon).replaceAll(RegExp(r'^\[|\]$'), '');
+        await client.disconnectDevice(host, int.parse(serial.substring(colon + 1)));
+        stdout.writeln('[u] disconnected $serial');
+      case AdbTransport.usb:
+        await client.usbMode(serial);
+        stdout.writeln('[u] $serial back to USB-only (port closed)');
+      case AdbTransport.mdns:
+      case AdbTransport.emulator:
+        throw '$serial is ${device.transport == AdbTransport.mdns ? "connected through wireless debugging" : "an emulator"}; '
+            'USB-only mode does not apply to it';
     }
   }
 
@@ -299,7 +336,12 @@ Future<void> _run(List<String> args) async {
     client: client,
     modelNames: modelNames,
     onReady: (device, name) async {
-      final kind = device.isNetwork ? 'wireless' : 'USB';
+      final kind = switch (device.transport) {
+        AdbTransport.usb => 'USB',
+        AdbTransport.network => 'wireless',
+        AdbTransport.mdns => 'wireless debugging',
+        AdbTransport.emulator => 'emulator',
+      };
       stdout.writeln('[+] $name (${device.serial}) connected via $kind');
       ipc.broadcast(IpcEvent.deviceReady(device.serial, model: name));
 
@@ -447,8 +489,7 @@ Future<void> _run(List<String> args) async {
     final command = line.trim().toLowerCase();
     switch (command) {
       case 'w':
-        final usb =
-            known.values.where((d) => d.isReady && !d.isNetwork).toList();
+        final usb = known.values.where((d) => d.isReady && d.canGoWireless).toList();
         if (usb.isEmpty) {
           stdout.writeln('[w] no USB device connected; plug in first');
           return;
@@ -458,7 +499,7 @@ Future<void> _run(List<String> args) async {
       case 'h':
         final handoffUsb = known.values
             .where((d) =>
-                d.isReady && !d.isNetwork && launcher.isRunning(d.serial))
+                d.isReady && d.canGoWireless && launcher.isRunning(d.serial))
             .toList();
         if (handoffUsb.isEmpty) {
           stdout.writeln('[h] no running USB mirror to hand off; press '
@@ -468,7 +509,11 @@ Future<void> _run(List<String> args) async {
         startHandoff(handoffUsb.first.serial);
         break;
       case 'u':
-        for (final d in known.values.where((d) => d.isReady)) {
+        // Only USB and ip:port devices have a USB-only mode to go back to.
+        for (final d in known.values.where((d) =>
+            d.isReady &&
+            (d.transport == AdbTransport.usb ||
+                d.transport == AdbTransport.network))) {
           await runUsbMode(d.serial);
         }
         break;
@@ -493,7 +538,12 @@ Future<void> _run(List<String> args) async {
         if (known.isEmpty) stdout.writeln('(no devices)');
         for (final d in known.values) {
           stdout.writeln('  ${d.serial}  ${d.state.name}'
-              '${d.isNetwork ? "  (wireless)" : ""}'
+              '${switch (d.transport) {
+                AdbTransport.usb => "",
+                AdbTransport.network => "  (wireless)",
+                AdbTransport.mdns => "  (wireless debugging)",
+                AdbTransport.emulator => "  (emulator)",
+              }}'
               '${launcher.isRunning(d.serial) ? "  (mirroring)" : ""}');
         }
         break;

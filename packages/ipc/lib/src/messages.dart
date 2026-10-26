@@ -26,7 +26,9 @@ abstract final class IpcCommands {
 
 /// Event names the daemon broadcasts.
 abstract final class IpcEvents {
-  /// Full device snapshot. data: {devices: [{serial, state, model?, mirroring}]}
+  /// Full device snapshot. data: {devices: [{serial, state, transport, model?,
+  /// mirroring}]}. `transport` is usb, network (ip:port), mdns (wireless
+  /// debugging) or emulator; only usb devices can go wireless.
   static const devices = 'devices';
 
   /// A device just became ready. data: {serial, model?}
