@@ -8,6 +8,8 @@ class FakeAdbServer {
   final ServerSocket _server;
   final _trackClients = <Socket>[];
   String _devicesPayload = 'FAKESERIAL\tdevice\n';
+  String _ipRouteOutput =
+      '192.168.1.0/24 dev wlan0 proto kernel scope link src 192.168.1.42\n';
 
   int get port => _server.port;
 
@@ -80,11 +82,7 @@ class FakeAdbServer {
       if (command == 'getprop ro.product.model') {
         socket.add(utf8.encode('Pixel 7\n'));
       } else if (command == 'ip route') {
-        socket.add(
-          utf8.encode(
-            '192.168.1.0/24 dev wlan0 proto kernel scope link src 192.168.1.42\n',
-          ),
-        );
+        socket.add(utf8.encode(_ipRouteOutput));
       } else {
         socket.add(utf8.encode('ok\n'));
       }
@@ -104,6 +102,10 @@ class FakeAdbServer {
     _end(socket);
     return false;
   }
+
+  /// Sets what `shell:ip route` returns from now on. An empty string models a
+  /// phone with no WiFi address (WiFi off, or the phone is the hotspot).
+  void setIpRoute(String output) => _ipRouteOutput = output;
 
   /// Updates what `host:devices` reports from now on, and pushes the same
   /// snapshot to any live `track-devices` subscribers, as if the device list

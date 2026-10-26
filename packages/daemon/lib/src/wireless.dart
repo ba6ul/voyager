@@ -3,6 +3,10 @@ import 'dart:io';
 
 import 'package:scrcpy_core/scrcpy_core.dart';
 
+/// Supplies the PC's IPv4 default gateways. Injectable so tests never depend
+/// on the routing table of the machine they run on.
+typedef GatewayProvider = Future<Set<String>> Function();
+
 /// Turns a USB-connected device into a wireless one, covering both cases:
 ///
 /// - Hotspot mode: PC joins the phone's hotspot. The phone is the router,
@@ -13,9 +17,11 @@ import 'package:scrcpy_core/scrcpy_core.dart';
 /// Neither path needs Android's "wireless debugging" toggle; plain USB
 /// debugging plus the classic `tcpip 5555` is enough.
 class WirelessManager {
-  WirelessManager(this.client);
+  WirelessManager(this.client, {GatewayProvider? gateways})
+      : _gateways = gateways ?? defaultGateways;
 
   final AdbClient client;
+  final GatewayProvider _gateways;
 
   static const devicePort = 5555;
 
@@ -38,7 +44,7 @@ class WirelessManager {
       phoneWifiIp = await client.wifiIp(serial);
     } catch (_) {}
 
-    stdout.writeln('[w] switching ${serial} to TCP mode...');
+    stdout.writeln('[w] switching $serial to TCP mode...');
     await client.tcpip(serial, devicePort);
     onStatus?.call('tcpipEnabled');
 
@@ -54,7 +60,7 @@ class WirelessManager {
 
     while (DateTime.now().isBefore(deadline)) {
       final candidates = <String>{
-        ...await defaultGateways(),
+        ...await _gateways(),
         if (phoneWifiIp != null) phoneWifiIp,
       }..removeAll(tried);
 
@@ -108,16 +114,25 @@ class WirelessManager {
     try {
       final result = await Process.run('route', ['print', '-4']);
       if (result.exitCode != 0) return {};
-      final pattern = RegExp(
-        r'^\s*0\.0\.0\.0\s+0\.0\.0\.0\s+(\d{1,3}(?:\.\d{1,3}){3})',
-        multiLine: true,
-      );
-      return pattern
-          .allMatches(result.stdout as String)
-          .map((m) => m.group(1)!)
-          .toSet();
+      return parseDefaultGateways(result.stdout as String);
     } catch (_) {
       return {};
     }
+  }
+
+  /// Extracts the gateway of every default route (`0.0.0.0 0.0.0.0 <gw> ...`)
+  /// from `route print -4` output. Rows whose gateway is not an address, such
+  /// as `On-link`, are skipped, and the same gateway on several interfaces is
+  /// reported once. Only the numeric rows are matched, so the output language
+  /// does not matter.
+  static Set<String> parseDefaultGateways(String routePrintOutput) {
+    final pattern = RegExp(
+      r'^\s*0\.0\.0\.0\s+0\.0\.0\.0\s+(\d{1,3}(?:\.\d{1,3}){3})',
+      multiLine: true,
+    );
+    return pattern
+        .allMatches(routePrintOutput)
+        .map((m) => m.group(1)!)
+        .toSet();
   }
 }
