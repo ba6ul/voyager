@@ -10,6 +10,13 @@ on:
       - 'packages/ui/**'
       - 'packages/ipc/**'
       - '.github/workflows/ci-ui.yml'
+  # Same paths on main, so a merge that touches the UI or ipc is re-checked.
+  push:
+    branches: [main]
+    paths:
+      - 'packages/ui/**'
+      - 'packages/ipc/**'
+      - '.github/workflows/ci-ui.yml'
 
 permissions:
   contents: read
