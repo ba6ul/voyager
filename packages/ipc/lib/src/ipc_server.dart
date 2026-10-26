@@ -42,6 +42,10 @@ class IpcServer {
   bool get isRunning => _server != null;
   int get clientCount => _clients.length;
 
+  /// The port actually bound; differs from the requested one when
+  /// [start] was given 0 (tests use that to avoid fixed-port collisions).
+  int get port => _server!.port;
+
   Future<void> start({int port = kDefaultIpcPort}) async {
     try {
       _server = await ServerSocket.bind(InternetAddress.loopbackIPv4, port);
