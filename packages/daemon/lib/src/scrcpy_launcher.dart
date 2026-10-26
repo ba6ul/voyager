@@ -53,6 +53,10 @@ class ScrcpyLauncher {
   /// while [Process.start] is still pending.
   final Set<String> _starting = {};
 
+  /// Serials that [stop]/[stopAll] was asked to close while their process was
+  /// still being started; applied the moment the process exists.
+  final Set<String> _stopRequested = {};
+
   bool isRunning(String serial) =>
       _running.containsKey(serial) || _starting.contains(serial);
 
@@ -64,7 +68,13 @@ class ScrcpyLauncher {
     String? windowTitle,
     List<String> extraArgs = const [],
   }) async {
-    if (isRunning(serial)) return LaunchResult.alreadyRunning;
+    if (_starting.contains(serial)) {
+      // A launch is already in flight. If a stop arrived meanwhile, this later
+      // request wins and the mirror stays.
+      _stopRequested.remove(serial);
+      return LaunchResult.alreadyRunning;
+    }
+    if (_running.containsKey(serial)) return LaunchResult.alreadyRunning;
 
     final args = <String>[
       '-s',
@@ -81,7 +91,14 @@ class ScrcpyLauncher {
     } finally {
       _starting.remove(serial);
     }
-    _running[serial] = process;
+    // A stop that arrived while the process was starting had nothing to kill
+    // yet; honour it now instead of leaving a mirror the caller closed. The
+    // process is then not tracked, and its exit is still reported below.
+    if (_stopRequested.remove(serial)) {
+      process.kill();
+    } else {
+      _running[serial] = process;
+    }
 
     // Surface scrcpy's own errors in the daemon log, drop the noise.
     process.stderr
@@ -105,10 +122,15 @@ class ScrcpyLauncher {
     return LaunchResult.started;
   }
 
-  /// Closes the scrcpy window for [serial], if any.
-  void stop(String serial) => _running.remove(serial)?.kill();
+  /// Closes the scrcpy window for [serial], if any. If one is still being
+  /// started, it is closed as soon as it exists.
+  void stop(String serial) {
+    if (_starting.contains(serial)) _stopRequested.add(serial);
+    _running.remove(serial)?.kill();
+  }
 
   void stopAll() {
+    _stopRequested.addAll(_starting);
     for (final process in _running.values) {
       process.kill();
     }
