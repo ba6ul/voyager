@@ -21,6 +21,7 @@ Future<String?> handoff({
   required String usbSerial,
   required String deviceName,
   Duration timeout = const Duration(seconds: 30),
+  GatewayProvider? gateways,
   void Function(String stage, [String? detail])? onStatus,
 }) async {
   stdout.writeln('[h] initiating handoff for $deviceName ($usbSerial)...');
@@ -68,6 +69,7 @@ Future<String?> handoff({
     client: client,
     phoneWifiIp: phoneWifiIp,
     timeout: timeout,
+    gateways: gateways ?? WirelessManager.defaultGateways,
   );
 
   if (wirelessSerial == null) {
@@ -113,6 +115,7 @@ Future<String?> _connectWireless({
   required AdbClient client,
   required String? phoneWifiIp,
   required Duration timeout,
+  required GatewayProvider gateways,
 }) async {
   const devicePort = WirelessManager.devicePort;
   final tried = <String>{};
@@ -129,8 +132,8 @@ Future<String?> _connectWireless({
     }
 
     // Try hotspot gateways.
-    final gateways = await WirelessManager.defaultGateways();
-    for (final ip in gateways) {
+    final candidates = await gateways();
+    for (final ip in candidates) {
       if (tried.contains(ip)) continue;
       tried.add(ip);
       stdout.writeln('[h] trying hotspot gateway: $ip:$devicePort');

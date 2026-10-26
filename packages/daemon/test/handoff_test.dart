@@ -75,11 +75,14 @@ class LaunchCall {
   final List<String> extraArgs;
 }
 
-// FakeAdbServer's `ip route` shell response always resolves to this address
-// (see packages/core/lib/src/testing/fake_server.dart), so the same-WiFi path
-// in handoff() is what these tests exercise; the hotspot-gateway fallback
-// would shell out to the real Windows routing table and isn't stubbed here.
+// FakeAdbServer's `ip route` shell response resolves to this address by
+// default (see packages/core/lib/src/testing/fake_server.dart), so unless a
+// test calls `setIpRoute`, handoff() takes the same-WiFi path. Gateway
+// discovery is always injected so no test reads the host's routing table.
 const _phoneWifiSerial = '192.168.1.42:5555';
+const _hotspotGateway = '192.168.43.1';
+
+Future<Set<String>> _noGateways() async => <String>{};
 
 void main() {
   group('Handoff (USB -> Wireless)', () {
@@ -108,6 +111,7 @@ void main() {
         launcher: launcher,
         usbSerial: 'FAKESERIAL',
         deviceName: 'Pixel 7',
+        gateways: _noGateways,
         timeout: const Duration(seconds: 5),
       );
 
@@ -130,6 +134,7 @@ void main() {
         launcher: launcher,
         usbSerial: 'FAKESERIAL',
         deviceName: 'Pixel 7',
+        gateways: _noGateways,
         timeout: const Duration(seconds: 2),
       );
 
@@ -149,6 +154,7 @@ void main() {
         launcher: launcher,
         usbSerial: 'FAKESERIAL',
         deviceName: 'Pixel 7',
+        gateways: _noGateways,
         timeout: const Duration(seconds: 5),
       );
 
@@ -156,6 +162,61 @@ void main() {
       expect(launcher.getEventTrace(), ['launch(FAKESERIAL)', 'launch($_phoneWifiSerial)']);
       expect(launcher.stops, isEmpty);
       expect(launcher.isRunning('FAKESERIAL'), isTrue);
+    });
+
+    test('handoff falls back to the hotspot gateway when the phone has no '
+        'WiFi address', () async {
+      await launcher.launch('FAKESERIAL', windowTitle: 'Pixel 7');
+      // Phone is the hotspot: `ip route` shows no wlan address to cache.
+      server.setIpRoute('');
+      server.setDevices(
+          'FAKESERIAL\tdevice\n$_hotspotGateway:5555\tdevice\n');
+
+      final result = await handoff(
+        client: client,
+        launcher: launcher,
+        usbSerial: 'FAKESERIAL',
+        deviceName: 'Pixel 7',
+        gateways: () async => {_hotspotGateway},
+        timeout: const Duration(seconds: 5),
+      );
+
+      expect(result, '$_hotspotGateway:5555');
+      expect(
+        launcher.getEventTrace(),
+        [
+          'launch(FAKESERIAL)',
+          'launch($_hotspotGateway:5555)',
+          'stop(FAKESERIAL)',
+        ],
+      );
+    });
+
+    test('handoff reports each stage in order on the hotspot path', () async {
+      await launcher.launch('FAKESERIAL', windowTitle: 'Pixel 7');
+      server.setIpRoute('');
+      server.setDevices(
+          'FAKESERIAL\tdevice\n$_hotspotGateway:5555\tdevice\n');
+      final stages = <String>[];
+
+      await handoff(
+        client: client,
+        launcher: launcher,
+        usbSerial: 'FAKESERIAL',
+        deviceName: 'Pixel 7',
+        gateways: () async => {_hotspotGateway},
+        timeout: const Duration(seconds: 5),
+        onStatus: (stage, [detail]) => stages.add(stage),
+      );
+
+      expect(stages, [
+        'readingWifiIp',
+        'tcpipEnabled',
+        'connecting',
+        'launchingWireless',
+        'closingUsb',
+        'complete',
+      ]);
     });
   });
 }
