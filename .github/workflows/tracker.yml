@@ -1,0 +1,27 @@
+# Keeps issue status in step with pull requests (see WORKFLOW.md in ba6ul/.github).
+# Never closes an issue.
+name: tracker
+
+on:
+  pull_request:
+    types: [opened, reopened, edited, ready_for_review, converted_to_draft, closed]
+  issues:
+    types: [closed]
+
+# checks: read lets the merge summary report whether CI passed.
+permissions:
+  contents: read
+  checks: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  tracker:
+    # Pull requests from forks get a read-only token and cannot change labels.
+    if: github.event_name == 'issues' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    concurrency:
+      group: tracker-${{ github.event.pull_request.number || github.event.issue.number }}
+      cancel-in-progress: false
+    steps:
+      - uses: ba6ul/.github/actions/tracker@v1

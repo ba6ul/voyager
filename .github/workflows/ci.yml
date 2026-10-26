@@ -1,0 +1,12 @@
+# Runs the checks listed in .github/project.json (see docs/project-config.md in ba6ul/.github).
+name: ci
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ba6ul/.github/.github/workflows/ci.yml@v1
