@@ -20,15 +20,12 @@ class MockScrcpyLauncher implements ScrcpyLauncher {
   final List<String> stops = [];
   final Map<String, bool> _running = {};
 
-  /// Serials that should fail to launch, to simulate scrcpy erroring out.
-  final Set<String> failLaunches = {};
-
   /// Serials whose launch throws, like `Process.start` does when the scrcpy
   /// binary does not exist.
   final Set<String> throwLaunches = {};
 
   @override
-  Future<bool> launch(
+  Future<LaunchResult> launch(
     String serial, {
     String? windowTitle,
     List<String> extraArgs = const [],
@@ -37,9 +34,10 @@ class MockScrcpyLauncher implements ScrcpyLauncher {
     if (throwLaunches.contains(serial)) {
       throw ProcessException('mock-scrcpy', ['-s', serial], 'file not found');
     }
-    if (failLaunches.contains(serial)) return false;
+    // Like the real launcher: an existing mirror is not an error.
+    if (_running[serial] ?? false) return LaunchResult.alreadyRunning;
     _running[serial] = true;
-    return true;
+    return LaunchResult.started;
   }
 
   @override
@@ -153,10 +151,16 @@ void main() {
       expect(launcher.isRunning('FAKESERIAL'), isTrue);
     }, timeout: const Timeout(Duration(seconds: 30)));
 
-    test('handoff reverts if new window fails to launch', () async {
+    test('handoff completes when the wireless address already has a mirror',
+        () async {
+      // Regression for #18: auto-launch had already opened a mirror on the
+      // wireless serial, launch() reported "false", and handoff treated that as
+      // a failure: it logged "wireless launch failed" and left the USB mirror
+      // in place.
       await launcher.launch('FAKESERIAL', windowTitle: 'Pixel 7');
-      launcher.failLaunches.add(_phoneWifiSerial);
+      await launcher.launch(_phoneWifiSerial, windowTitle: 'Pixel 7');
       server.setDevices('FAKESERIAL\tdevice\n$_phoneWifiSerial\tdevice\n');
+      final statuses = <String>[];
 
       final result = await handoff(
         client: client,
@@ -165,12 +169,15 @@ void main() {
         deviceName: 'Pixel 7',
         gateways: _noGateways,
         timeout: const Duration(seconds: 5),
+        onStatus: (stage, [detail]) => statuses.add(stage),
       );
 
-      expect(result, isNull);
-      expect(launcher.getEventTrace(), ['launch(FAKESERIAL)', 'launch($_phoneWifiSerial)']);
-      expect(launcher.stops, isEmpty);
-      expect(launcher.isRunning('FAKESERIAL'), isTrue);
+      expect(result, _phoneWifiSerial);
+      expect(launcher.stops, ['FAKESERIAL']);
+      expect(launcher.isRunning('FAKESERIAL'), isFalse);
+      expect(launcher.isRunning(_phoneWifiSerial), isTrue);
+      expect(statuses.last, 'complete');
+      expect(statuses, isNot(contains('failed')));
     });
 
     test('handoff falls back to the hotspot gateway when the phone has no '

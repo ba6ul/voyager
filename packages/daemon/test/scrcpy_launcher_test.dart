@@ -70,9 +70,9 @@ void main() {
     test('starts scrcpy with the serial, window title and base args', () async {
       final launcher = newLauncher();
 
-      final launched = await launcher.launch('SER1', windowTitle: 'Pixel');
+      final result = await launcher.launch('SER1', windowTitle: 'Pixel');
 
-      expect(launched, isTrue);
+      expect(result, LaunchResult.started);
       expect(startedArgs.single,
           ['-s', 'SER1', '--window-title=Pixel', '--stay-awake']);
       expect(launcher.isRunning('SER1'), isTrue);
@@ -92,8 +92,8 @@ void main() {
           reason: 'the slot is reserved while the process is still starting');
       startGate!.complete();
 
-      expect(await first, isTrue);
-      expect(await second, isFalse);
+      expect(await first, LaunchResult.started);
+      expect(await second, LaunchResult.alreadyRunning);
       expect(startedArgs, hasLength(1));
       expect(started, hasLength(1));
     });
@@ -106,8 +106,8 @@ void main() {
       final b = launcher.launch('B');
       startGate!.complete();
 
-      expect(await a, isTrue);
-      expect(await b, isTrue);
+      expect(await a, LaunchResult.started);
+      expect(await b, LaunchResult.started);
       expect(started, hasLength(2));
     });
 
@@ -120,16 +120,26 @@ void main() {
       expect(launcher.isRunning('SER1'), isFalse);
 
       startError = null;
-      expect(await launcher.launch('SER1'), isTrue);
+      expect(await launcher.launch('SER1'), LaunchResult.started);
       expect(launcher.isRunning('SER1'), isTrue);
     });
 
-    test('returns false while a mirror is already running', () async {
+    test('reports alreadyRunning, not a failure, while a mirror is running',
+        () async {
       final launcher = newLauncher();
       await launcher.launch('SER1');
 
-      expect(await launcher.launch('SER1'), isFalse);
+      expect(await launcher.launch('SER1'), LaunchResult.alreadyRunning);
       expect(started, hasLength(1));
+      expect(launcher.isRunning('SER1'), isTrue);
+    });
+
+    test('a start that throws is an error, not a LaunchResult', () async {
+      final launcher = newLauncher();
+      startError = const ProcessException('scrcpy', [], 'not found');
+
+      await expectLater(
+          launcher.launch('SER1'), throwsA(isA<ProcessException>()));
     });
   });
 
@@ -251,8 +261,8 @@ void main() {
       final second = launcher.launch('SER1');
       startGate!.complete();
 
-      expect(await first, isTrue);
-      expect(await second, isFalse);
+      expect(await first, LaunchResult.started);
+      expect(await second, LaunchResult.alreadyRunning);
       expect(started.single.killed, isFalse);
       expect(launcher.isRunning('SER1'), isTrue);
     });
