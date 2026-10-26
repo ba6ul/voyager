@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:scrcpy_core/scrcpy_core.dart';
 import 'package:scrcpy_daemon/src/config.dart';
+import 'package:scrcpy_daemon/src/guarded.dart';
 import 'package:scrcpy_daemon/src/handoff.dart';
 import 'package:scrcpy_daemon/src/known_devices.dart';
 import 'package:scrcpy_daemon/src/scrcpy_launcher.dart';
@@ -22,7 +23,18 @@ import 'package:scrcpy_ipc/scrcpy_ipc.dart';
 /// 2. Interactive Terminal I/O: Exposes localized shell evaluation protocols to command manual network routing topology changes.
 /// 3. IPC: Exposes the same operations to any connected UI over a loopback socket (packages/ipc). Both stdin and IPC drive the same functions.
 /// 4. Resource Destruction: Binds platform signal listeners to ensure complete sub-process evacuation during abrupt termination.
-Future<void> main(List<String> args) async {
+void main(List<String> args) {
+  // Last-resort net: log an error nothing else handled instead of letting it
+  // end the process. Expected failures are handled where they happen (see
+  // `guarded` and the flows below); this only keeps the daemon up when one
+  // slips through.
+  runZonedGuarded(
+    () => _run(args),
+    (error, stack) => stderr.writeln('[!] unhandled error: $error\n$stack'),
+  );
+}
+
+Future<void> _run(List<String> args) async {
   var config = await DaemonConfig.load();
   final adbPath = args.isNotEmpty ? args.first : config.adbPath;
 
@@ -114,44 +126,78 @@ Future<void> main(List<String> args) async {
     ipc.broadcast(IpcEvent.knownDevices(knownDevicesJson()));
   }
 
-  Future<void> runGoWireless(String serial) async {
-    final networkSerial = await wireless.goWireless(
-      serial,
-      onStatus: (stage, [detail]) =>
-          ipc.broadcast(IpcEvent.wirelessStatus(serial, stage, detail)),
-    );
-    // On success the network device appears in track-devices and
-    // autoLaunch opens the mirror by itself.
-    if (networkSerial == null) {
-      stdout.writeln('[w] gave up trying to reach $serial wirelessly');
-    } else {
-      await rememberWireless(serial, networkSerial);
+  // The device is already wireless by the time this runs, so a failure to
+  // cache it only costs the later auto-reconnect; it must not turn a
+  // successful flow into a reported failure.
+  Future<void> rememberWirelessSafely(
+      String usbSerial, String networkSerial) async {
+    try {
+      await rememberWireless(usbSerial, networkSerial);
+    } catch (e) {
+      stdout.writeln('[=] $networkSerial connected, but $usbSerial could not '
+          'be saved for auto-reconnect: $e');
     }
   }
 
-  Future<void> runHandoff(String serial) async {
-    if (!launcher.isRunning(serial)) {
-      stdout.writeln('[h] no running USB mirror to hand off for $serial');
-      return;
-    }
-    final name = modelNames[serial] ?? await client.model(serial);
-    handoffInFlight.add(serial);
-    try {
-      final wirelessSerial = await handoff(
-        client: client,
-        launcher: launcher,
-        usbSerial: serial,
-        deviceName: name,
-        onStatus: (stage, [detail]) =>
-            ipc.broadcast(IpcEvent.handoffStatus(serial, stage, detail)),
+  // Both flows run fire-and-forget (IPC command, stdin key), so an error that
+  // escapes them would end the daemon. goWireless/handoff report the failures
+  // they expect through onStatus; `guarded` catches anything else and sends
+  // the same `failed` status so a UI is not left waiting.
+  Future<void> runGoWireless(String serial) => guarded(
+        'goWireless $serial',
+        () async {
+          final networkSerial = await wireless.goWireless(
+            serial,
+            onStatus: (stage, [detail]) =>
+                ipc.broadcast(IpcEvent.wirelessStatus(serial, stage, detail)),
+          );
+          // On success the network device appears in track-devices and
+          // autoLaunch opens the mirror by itself.
+          if (networkSerial == null) {
+            stdout.writeln('[w] gave up trying to reach $serial wirelessly');
+          } else {
+            await rememberWirelessSafely(serial, networkSerial);
+          }
+        },
+        onError: (error, _) => ipc.broadcast(
+            IpcEvent.wirelessStatus(serial, 'failed', error.toString())),
       );
-      if (wirelessSerial != null) {
-        await rememberWireless(serial, wirelessSerial);
-      }
-    } finally {
-      handoffInFlight.remove(serial);
-    }
-  }
+
+  Future<void> runHandoff(String serial) => guarded(
+        'handoff $serial',
+        () async {
+          if (!launcher.isRunning(serial)) {
+            stdout.writeln('[h] no running USB mirror to hand off for $serial');
+            return;
+          }
+          var name = modelNames[serial];
+          if (name == null) {
+            try {
+              name = await client.model(serial);
+            } catch (_) {
+              name = serial; // the name only titles the new window
+            }
+          }
+          handoffInFlight.add(serial);
+          try {
+            final wirelessSerial = await handoff(
+              client: client,
+              launcher: launcher,
+              usbSerial: serial,
+              deviceName: name,
+              onStatus: (stage, [detail]) =>
+                  ipc.broadcast(IpcEvent.handoffStatus(serial, stage, detail)),
+            );
+            if (wirelessSerial != null) {
+              await rememberWirelessSafely(serial, wirelessSerial);
+            }
+          } finally {
+            handoffInFlight.remove(serial);
+          }
+        },
+        onError: (error, _) => ipc.broadcast(
+            IpcEvent.handoffStatus(serial, 'failed', error.toString())),
+      );
 
   Future<void> runUsbMode(String serial) async {
     final device = known[serial];
@@ -168,24 +214,31 @@ Future<void> main(List<String> args) async {
 
   void scheduleAutoLaunch(String serial, String name) {
     pendingLaunchTimers.remove(serial)?.cancel();
-    pendingLaunchTimers[serial] = Timer(autoLaunchDebounce, () async {
-      pendingLaunchTimers.remove(serial);
-      final current = known[serial];
-      if (current == null || !current.isReady) {
-        // Flapped away again before settling; the next becameReady (if any)
-        // will schedule a fresh attempt.
-        return;
-      }
-      if (!config.autoLaunch) return;
-      if (handoffInFlight.contains(serial)) {
-        stdout.writeln('[=] skipping auto-launch for $serial; handoff in progress');
-        return;
-      }
-      final launched = await launcher.launch(serial, windowTitle: name);
-      stdout.writeln(launched
-          ? '[>] scrcpy launched for $name'
-          : '[=] scrcpy already running for $name');
-    });
+    // Timer callbacks are not awaited by anyone, so launch errors (e.g. a
+    // missing scrcpy.exe throws ProcessException) must be caught here.
+    pendingLaunchTimers[serial] = Timer(autoLaunchDebounce, () => guarded(
+      'auto-launch for $name',
+      () async {
+        pendingLaunchTimers.remove(serial);
+        final current = known[serial];
+        if (current == null || !current.isReady) {
+          // Flapped away again before settling; the next becameReady (if any)
+          // will schedule a fresh attempt.
+          return;
+        }
+        if (!config.autoLaunch) return;
+        if (handoffInFlight.contains(serial)) {
+          stdout.writeln('[=] skipping auto-launch for $serial; handoff in progress');
+          return;
+        }
+        final launched = await launcher.launch(serial, windowTitle: name);
+        stdout.writeln(launched
+            ? '[>] scrcpy launched for $name'
+            : '[=] scrcpy already running for $name');
+      },
+      onError: (error, _) => ipc.broadcast(
+          IpcEvent.log('could not start scrcpy for $name: $error')),
+    ));
   }
 
   Future<void> onReady(AdbDevice device) async {
@@ -288,8 +341,14 @@ Future<void> main(List<String> args) async {
   }
 
   stdout.writeln('starting adb server if needed...');
-  await client.ensureServerRunning();
-  stdout.writeln('adb server protocol version: ${await client.serverVersion()}');
+  try {
+    await client.ensureServerRunning();
+    stdout.writeln('adb server protocol version: ${await client.serverVersion()}');
+  } catch (e) {
+    // The device-tracking loop below retries every 2 s, so keep the daemon
+    // (and its IPC server) up rather than ending the process.
+    stdout.writeln('adb server not available yet ($e), will keep retrying');
+  }
   stdout.writeln('watching for devices | commands: '
       'w=wireless h=handoff u=usb p=play l=list q=quit\n');
 
@@ -302,7 +361,7 @@ Future<void> main(List<String> args) async {
   stdin
       .transform(utf8.decoder)
       .transform(const LineSplitter())
-      .listen((line) async {
+      .listen((line) => guarded('command "${line.trim()}"', () async {
     final command = line.trim().toLowerCase();
     switch (command) {
       case 'w':
@@ -365,7 +424,7 @@ Future<void> main(List<String> args) async {
           stdout.writeln('commands: w=wireless h=handoff u=usb p=play l=list q=quit');
         }
     }
-  });
+  }));
 
   while (true) {
     try {
@@ -402,7 +461,13 @@ Future<void> main(List<String> args) async {
       stdout.writeln('adb server unreachable ($e), retrying in 2s...');
     }
     await Future<void>.delayed(const Duration(seconds: 2));
-    await client.ensureServerRunning();
+    try {
+      await client.ensureServerRunning();
+    } catch (e) {
+      // adb missing or start-server failing must not end the daemon; the
+      // next pass of this loop tries again.
+      stdout.writeln('could not start the adb server ($e), retrying in 2s...');
+    }
   }
 }
 
