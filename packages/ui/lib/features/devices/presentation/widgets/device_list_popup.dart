@@ -31,6 +31,7 @@ class DeviceListPopup extends StatelessWidget {
                   for (final cached in pending)
                     PendingReconnectRow(
                       device: cached,
+                      status: state.retries[cached.usbSerial],
                       onTryNow: () => cubit.retryReconnect(cached.usbSerial),
                     ),
                   if (pending.isNotEmpty && state.devices.isNotEmpty)

@@ -24,6 +24,20 @@ class ReconnectSnapshot {
   final Set<String> handoffInFlight;
 }
 
+/// What a manual retry ([WirelessReconnector.retryNow]) did.
+enum ManualRetryOutcome {
+  /// `adb connect` answered "connected to ..."; `trackDevices()` confirms the
+  /// device is ready and drives everything after that.
+  reconnected,
+
+  /// `adb connect` failed or timed out: nothing answers at the cached address.
+  unreachable,
+
+  /// Not tried: the phone is already connected, or a goWireless/handoff for
+  /// it is in flight.
+  skipped,
+}
+
 /// Pure filter: which cached devices deserve a connect attempt this tick.
 List<KnownWirelessDevice> candidatesToRetry(ReconnectSnapshot s) {
   return s.cached.values.where((entry) {
@@ -82,6 +96,25 @@ class WirelessReconnector {
     } finally {
       _busy = false;
     }
+  }
+
+  /// One immediate attempt for [entry], for the UI's "Try Now". Unlike
+  /// [runOnce] it is not skipped because a periodic tick happens to be running,
+  /// and it reports why nothing was tried, so the caller can tell the user.
+  Future<ManualRetryOutcome> retryNow(
+    KnownWirelessDevice entry,
+    ReconnectSnapshot snapshot,
+  ) async {
+    final onlyThis = ReconnectSnapshot(
+      cached: {entry.usbSerial: entry},
+      live: snapshot.live,
+      handoffInFlight: snapshot.handoffInFlight,
+    );
+    if (candidatesToRetry(onlyThis).isEmpty) return ManualRetryOutcome.skipped;
+    final connected = await _attempt(entry);
+    return connected != null
+        ? ManualRetryOutcome.reconnected
+        : ManualRetryOutcome.unreachable;
   }
 
   Future<String?> _attempt(KnownWirelessDevice entry) async {

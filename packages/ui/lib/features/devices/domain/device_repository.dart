@@ -10,6 +10,32 @@ class StatusEvent {
   final String? detail;
 }
 
+/// What the daemon did with a "Try Now" for a cached device.
+enum RetryOutcome {
+  /// `adb connect` succeeded; the device shows up in [DeviceRepository.devices]
+  /// a moment later.
+  reconnected,
+
+  /// Nothing answered at the cached address.
+  unreachable,
+
+  /// Not tried: the phone is already connected or a wireless flow is running.
+  skipped,
+
+  /// The daemon accepted the request but did not say what happened (a daemon
+  /// older than the outcome reply).
+  requested,
+}
+
+class RetryResult {
+  const RetryResult(this.outcome, {this.address});
+
+  final RetryOutcome outcome;
+
+  /// The `ip:port` that was tried, when the daemon says.
+  final String? address;
+}
+
 /// The UI's view of the daemon: a live device list plus the actions a user
 /// can take on a device. Implemented over the IPC protocol
 /// (daemon_device_repository.dart); the Cubit only ever depends on this.
@@ -41,8 +67,9 @@ abstract class DeviceRepository {
   Future<void> usbMode(String serial);
 
   /// Fires an immediate reconnect attempt for a cached device, rather than
-  /// waiting for the daemon's periodic background retry.
-  Future<void> retryReconnect(String usbSerial);
+  /// waiting for the daemon's periodic background retry, and reports what
+  /// happened.
+  Future<RetryResult> retryReconnect(String usbSerial);
 
   void dispose();
 }

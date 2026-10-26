@@ -130,4 +130,69 @@ void main() {
       await first;
     });
   });
+
+  group('WirelessReconnector.retryNow', () {
+    late FakeAdbServer server;
+    late WirelessReconnector reconnector;
+
+    setUp(() async {
+      server = await FakeAdbServer.start();
+      reconnector = WirelessReconnector(client: AdbClient(port: server.port));
+    });
+
+    tearDown(() => server.close());
+
+    ReconnectSnapshot snapshot({
+      Map<String, AdbDevice> live = const {},
+      Set<String> inFlight = const {},
+    }) =>
+        ReconnectSnapshot(
+          cached: {_cached.usbSerial: _cached},
+          live: live,
+          handoffInFlight: inFlight,
+        );
+
+    test('reports reconnected when adb connect succeeds', () async {
+      expect(await reconnector.retryNow(_cached, snapshot()),
+          ManualRetryOutcome.reconnected);
+    });
+
+    test('reports unreachable when adb cannot be asked or does not answer',
+        () async {
+      final dead = WirelessReconnector(client: AdbClient(port: 1));
+
+      expect(await dead.retryNow(_cached, snapshot()),
+          ManualRetryOutcome.unreachable);
+    });
+
+    test('reports skipped when the phone is already live over USB', () async {
+      final outcome = await reconnector.retryNow(
+        _cached,
+        snapshot(live: {
+          _cached.usbSerial: AdbDevice(
+              serial: _cached.usbSerial, state: AdbDeviceState.device),
+        }),
+      );
+
+      expect(outcome, ManualRetryOutcome.skipped);
+    });
+
+    test('reports skipped while a wireless flow for it is in flight', () async {
+      expect(
+        await reconnector.retryNow(
+            _cached, snapshot(inFlight: {_cached.usbSerial})),
+        ManualRetryOutcome.skipped,
+      );
+    });
+
+    test('still tries while a periodic tick is running', () async {
+      // runOnce returns immediately when a tick is already in flight; a
+      // manual retry must not be swallowed by that.
+      final tick = reconnector.runOnce(snapshot());
+
+      expect(await reconnector.retryNow(_cached, snapshot()),
+          ManualRetryOutcome.reconnected);
+      await tick;
+    });
+  });
 }

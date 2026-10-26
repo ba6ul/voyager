@@ -80,8 +80,15 @@ class DaemonDeviceRepository implements DeviceRepository {
       _connection.send(IpcCommands.usbMode, {'serial': serial});
 
   @override
-  Future<void> retryReconnect(String usbSerial) =>
-      _connection.send(IpcCommands.retryReconnect, {'serial': usbSerial});
+  Future<RetryResult> retryReconnect(String usbSerial) async {
+    final result = await _connection
+        .send(IpcCommands.retryReconnect, {'serial': usbSerial});
+    final outcome = RetryOutcome.values.firstWhere(
+      (o) => o.name == result.data['outcome'],
+      orElse: () => RetryOutcome.requested,
+    );
+    return RetryResult(outcome, address: result.data['address'] as String?);
+  }
 
   @override
   void dispose() => _connection.dispose();

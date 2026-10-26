@@ -48,8 +48,40 @@ class DeviceListCubit extends Cubit<DeviceListState> {
   Future<void> stop(String serial) => _repository.stop(serial);
   Future<void> goWireless(String serial) => _repository.goWireless(serial);
   Future<void> handoff(String serial) => _repository.handoff(serial);
-  Future<void> retryReconnect(String usbSerial) =>
-      _repository.retryReconnect(usbSerial);
+
+  /// "Try Now" for a cached device. Tracks the attempt in [DeviceListState.retries]
+  /// so the row can show progress and, afterwards, what happened.
+  Future<void> retryReconnect(String usbSerial) async {
+    if (state.retries[usbSerial]?.inProgress ?? false) return;
+    _setRetry(usbSerial, const RetryStatus.trying());
+    try {
+      final result = await _repository.retryReconnect(usbSerial);
+      _setRetry(usbSerial, RetryStatus.finished(_describe(result)));
+    } catch (e) {
+      _setRetry(usbSerial, RetryStatus.finished('Could not retry: $e'));
+    }
+  }
+
+  void _setRetry(String usbSerial, RetryStatus status) {
+    if (isClosed) return;
+    emit(state.copyWith(retries: {...state.retries, usbSerial: status}));
+  }
+
+  String _describe(RetryResult result) {
+    final where = result.address ?? 'the saved address';
+    switch (result.outcome) {
+      case RetryOutcome.reconnected:
+        return 'Connected to $where – waiting for the phone to report in…';
+      case RetryOutcome.unreachable:
+        return 'No answer from $where. If the phone restarted or changed '
+            'network, plug it in with USB and use Go Wireless again.';
+      case RetryOutcome.skipped:
+        return 'Not retried: this phone is already connected, or a wireless '
+            'setup is running.';
+      case RetryOutcome.requested:
+        return 'Retry requested.';
+    }
+  }
 
   @override
   Future<void> close() async {

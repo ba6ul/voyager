@@ -7,70 +7,7 @@ import 'package:scrcpy_ui/features/devices/domain/entities/device.dart';
 import 'package:scrcpy_ui/features/devices/presentation/cubit/device_list_cubit.dart';
 import 'package:scrcpy_ui/features/devices/presentation/cubit/device_list_state.dart';
 
-/// In-memory stand-in for the daemon, in the same spirit as
-/// packages/core's FakeAdbServer and packages/daemon's MockScrcpyLauncher.
-class FakeDeviceRepository implements DeviceRepository {
-  final connectedController = StreamController<bool>.broadcast();
-  final devicesController = StreamController<List<Device>>.broadcast();
-  final deviceReadyController = StreamController<String>.broadcast();
-  final wirelessStatusController = StreamController<StatusEvent>.broadcast();
-  final handoffStatusController = StreamController<StatusEvent>.broadcast();
-  final knownDevicesController = StreamController<List<CachedDevice>>.broadcast();
-
-  final List<String> playedSerials = [];
-  final List<String> stoppedSerials = [];
-  final List<String> wirelessSerials = [];
-  final List<String> handoffSerials = [];
-  final List<String> retryReconnectSerials = [];
-  bool connectCalled = false;
-  bool disposed = false;
-
-  @override
-  Future<void> connect() async => connectCalled = true;
-
-  @override
-  Stream<bool> get connected => connectedController.stream;
-
-  @override
-  Stream<List<Device>> get devices => devicesController.stream;
-
-  @override
-  Stream<String> get deviceReadySerials => deviceReadyController.stream;
-
-  @override
-  Stream<StatusEvent> get wirelessStatus => wirelessStatusController.stream;
-
-  @override
-  Stream<StatusEvent> get handoffStatus => handoffStatusController.stream;
-
-  @override
-  Future<bool> launch(String serial) async {
-    playedSerials.add(serial);
-    return true;
-  }
-
-  @override
-  Future<void> stop(String serial) async => stoppedSerials.add(serial);
-
-  @override
-  Future<void> goWireless(String serial) async => wirelessSerials.add(serial);
-
-  @override
-  Future<void> handoff(String serial) async => handoffSerials.add(serial);
-
-  @override
-  Future<void> usbMode(String serial) async {}
-
-  @override
-  Stream<List<CachedDevice>> get knownDevices => knownDevicesController.stream;
-
-  @override
-  Future<void> retryReconnect(String usbSerial) async =>
-      retryReconnectSerials.add(usbSerial);
-
-  @override
-  void dispose() => disposed = true;
-}
+import 'fake_device_repository.dart';
 
 void main() {
   late FakeDeviceRepository repository;
@@ -170,6 +107,101 @@ void main() {
     await cubit.retryReconnect('ABC123');
 
     expect(repository.retryReconnectSerials, ['ABC123']);
+  });
+
+  group('retryReconnect feedback', () {
+    test('is in progress until the daemon answers, then shows the outcome',
+        () async {
+      final cubit = DeviceListCubit(repository);
+      repository.retryGate = Completer<void>();
+      repository.retryResult = const RetryResult(RetryOutcome.unreachable,
+          address: '192.168.1.42:5555');
+
+      final pending = cubit.retryReconnect('ABC123');
+      await Future<void>.delayed(Duration.zero);
+      expect(cubit.state.retries['ABC123']?.inProgress, isTrue);
+      expect(cubit.state.retries['ABC123']?.message, isNull);
+
+      repository.retryGate!.complete();
+      await pending;
+
+      final status = cubit.state.retries['ABC123']!;
+      expect(status.inProgress, isFalse);
+      expect(status.message, contains('192.168.1.42:5555'));
+      expect(status.message, contains('USB'));
+    });
+
+    test('says so when the phone is already connected', () async {
+      final cubit = DeviceListCubit(repository);
+      repository.retryResult = const RetryResult(RetryOutcome.skipped);
+
+      await cubit.retryReconnect('ABC123');
+
+      expect(cubit.state.retries['ABC123']?.message, contains('already connected'));
+    });
+
+    test('reports a successful reconnect as waiting for the phone', () async {
+      final cubit = DeviceListCubit(repository);
+
+      await cubit.retryReconnect('ABC123');
+
+      final status = cubit.state.retries['ABC123']!;
+      expect(status.inProgress, isFalse);
+      expect(status.message, contains('Connected to 192.168.1.42:5555'));
+    });
+
+    test('shows the failure when the daemon cannot be asked', () async {
+      final cubit = DeviceListCubit(repository);
+      repository.retryError = StateError('not connected to the daemon');
+
+      await cubit.retryReconnect('ABC123');
+
+      final status = cubit.state.retries['ABC123']!;
+      expect(status.inProgress, isFalse);
+      expect(status.message, startsWith('Could not retry'));
+      expect(status.message, contains('not connected to the daemon'));
+    });
+
+    test('ignores a second tap while one retry is in flight', () async {
+      final cubit = DeviceListCubit(repository);
+      repository.retryGate = Completer<void>();
+
+      final first = cubit.retryReconnect('ABC123');
+      await Future<void>.delayed(Duration.zero);
+      await cubit.retryReconnect('ABC123');
+      repository.retryGate!.complete();
+      await first;
+
+      expect(repository.retryReconnectSerials, ['ABC123']);
+    });
+
+    test('keeps retries of different devices independent', () async {
+      final cubit = DeviceListCubit(repository);
+      repository.retryGate = Completer<void>();
+
+      final a = cubit.retryReconnect('AAA');
+      await Future<void>.delayed(Duration.zero);
+      final b = cubit.retryReconnect('BBB');
+      await Future<void>.delayed(Duration.zero);
+      expect(cubit.state.retries.keys, containsAll(['AAA', 'BBB']));
+
+      repository.retryGate!.complete();
+      await Future.wait([a, b]);
+      expect(repository.retryReconnectSerials, ['AAA', 'BBB']);
+    });
+
+    test('does not throw if the cubit is closed while a retry is in flight',
+        () async {
+      final cubit = DeviceListCubit(repository);
+      repository.retryGate = Completer<void>();
+
+      final pending = cubit.retryReconnect('ABC123');
+      await Future<void>.delayed(Duration.zero);
+      await cubit.close();
+      repository.retryGate!.complete();
+
+      await expectLater(pending, completes);
+    });
   });
 
   test('disposes the repository when closed', () async {

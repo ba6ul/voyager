@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../domain/entities/cached_device.dart';
+import '../cubit/device_list_state.dart';
 
 /// A device that has gone wireless before but isn't currently reachable.
 /// The daemon retries it in the background on its own every few seconds;
@@ -10,10 +11,14 @@ class PendingReconnectRow extends StatelessWidget {
     super.key,
     required this.device,
     required this.onTryNow,
+    this.status,
   });
 
   final CachedDevice device;
   final VoidCallback onTryNow;
+
+  /// Progress or outcome of the last "Try Now", if any.
+  final RetryStatus? status;
 
   @override
   Widget build(BuildContext context) {
@@ -27,13 +32,30 @@ class PendingReconnectRow extends StatelessWidget {
               children: [
                 Text(device.model, style: Theme.of(context).textTheme.titleMedium),
                 Text(
-                  'previously connected – reconnecting…',
+                  status?.message ?? 'previously connected – reconnecting…',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
             ),
           ),
-          OutlinedButton(onPressed: onTryNow, child: const Text('Try Now')),
+          if (status?.inProgress ?? false)
+            const OutlinedButton(
+              onPressed: null,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 8),
+                  Text('Trying…'),
+                ],
+              ),
+            )
+          else
+            OutlinedButton(onPressed: onTryNow, child: const Text('Try Now')),
         ],
       ),
     );
