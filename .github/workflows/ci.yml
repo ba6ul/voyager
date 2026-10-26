@@ -10,3 +10,10 @@ permissions:
 jobs:
   ci:
     uses: ba6ul/.github/.github/workflows/ci.yml@v1
+
+  # The daemon is Windows-first (route print, process handling), so run the
+  # same checks there as well. The job above keeps its name and runner.
+  ci-windows:
+    uses: ba6ul/.github/.github/workflows/ci.yml@v1
+    with:
+      runner: windows-latest
