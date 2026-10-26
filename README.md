@@ -165,7 +165,10 @@ adb server
 
 Each package is tested on its own. None of the tests need a phone, adb, or
 scrcpy: they use an in-process fake adb server, fake repositories, and
-OS-assigned loopback ports.
+OS-assigned loopback ports. The daemon's process-level tests start the real
+`bin/daemon.dart` against the fake adb server by setting
+`ANDROID_ADB_SERVER_PORT` (the variable adb itself honours) and an isolated
+`APPDATA`, so they never touch a real adb server or your Voyager config.
 
 ```powershell
 cd packages\core
