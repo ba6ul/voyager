@@ -199,4 +199,113 @@ void main() {
       await waitFor(() => failures() == 2);
     });
   });
+
+  group('device transport', () {
+    // Serials of each shape, the mDNS and emulator ones as observed from real
+    // adb (a Pixel on wireless debugging and a booted AVD, 2026-10-28).
+    const usbSerial = 'FAKESERIAL';
+    const mdnsSerial = 'adb-65261XEA33U4D0-HvLNB1._adb-tls-connect._tcp';
+    const emulatorSerial = 'emulator-5554';
+    const networkSerial = '192.168.43.1:5555';
+
+    Future<DaemonHarness> startWithAllKinds() async {
+      final d = await startDaemon();
+      await d.waitForLog('[+] Pixel 7');
+      adb.setDevices('$usbSerial\tdevice\n$emulatorSerial\tdevice\n'
+          '$mdnsSerial\tdevice\n$networkSerial\tdevice\n');
+      final deadline = DateTime.now().add(const Duration(seconds: 20));
+      while ((await d.listDevices()).length < 4) {
+        if (DateTime.now().isAfter(deadline)) fail('devices never all listed');
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      return d;
+    }
+
+    test('each device is reported with its transport', () async {
+      final d = await startWithAllKinds();
+
+      final transports = {
+        for (final device in await d.listDevices())
+          device['serial'] as String: device['transport'],
+      };
+      expect(transports, {
+        usbSerial: 'usb',
+        emulatorSerial: 'emulator',
+        mdnsSerial: 'mdns',
+        networkSerial: 'network',
+      });
+    });
+
+    test('the log says how each device is connected', () async {
+      // Regression for #28: an mDNS phone and an emulator were both logged as
+      // "connected via USB".
+      final d = await startWithAllKinds();
+
+      await d.waitForLog('($emulatorSerial) connected via emulator');
+      await d.waitForLog('($mdnsSerial) connected via wireless debugging');
+      await d.waitForLog('($networkSerial) connected via wireless');
+      expect(d.log.where((l) => l.contains('connected via USB')),
+          hasLength(1),
+          reason: 'only the real USB device');
+    });
+
+    test('Go Wireless and handoff are turned away for everything but USB, '
+        'without sending anything to adb', () async {
+      // Regression for #28: Go Wireless was accepted for an emulator (it
+      // restarted the emulator's adbd and then tried to connect to the host's
+      // LAN gateway) and for a phone already on wireless debugging.
+      final d = await startWithAllKinds();
+      final client = IpcClient();
+      await client.connect(port: d.ipcPort);
+      addTearDown(client.close);
+
+      final expectedWords = {
+        emulatorSerial: 'an emulator',
+        mdnsSerial: 'wireless debugging',
+        networkSerial: 'already on a wireless address',
+      };
+      for (final entry in expectedWords.entries) {
+        for (final command in [IpcCommands.goWireless, IpcCommands.handoff]) {
+          final result = await client.send(command, {'serial': entry.key});
+          expect(result.data['started'], isFalse,
+              reason: '$command for ${entry.key}');
+          expect(result.data['reason'], contains('only for a phone connected '
+              'by USB'));
+          expect(result.data['reason'], contains(entry.value));
+        }
+      }
+      expect(adb.tcpipRequests, 0,
+          reason: 'nothing was sent to a device that cannot switch');
+      expect(d.isAlive, isTrue);
+    });
+
+    test('Go Wireless is still accepted for a USB phone', () async {
+      final d = await startWithAllKinds();
+      final client = IpcClient();
+      await client.connect(port: d.ipcPort);
+      addTearDown(client.close);
+
+      final result =
+          await client.send(IpcCommands.goWireless, {'serial': usbSerial});
+
+      expect(result.data['started'], isTrue);
+    });
+
+    test('USB-only mode is refused for an emulator and for wireless debugging',
+        () async {
+      final d = await startWithAllKinds();
+      final client = IpcClient();
+      await client.connect(port: d.ipcPort);
+      addTearDown(client.close);
+
+      for (final serial in [emulatorSerial, mdnsSerial]) {
+        await expectLater(
+          client.send(IpcCommands.usbMode, {'serial': serial}),
+          throwsA(isA<IpcCommandFailed>().having(
+              (e) => e.message, 'message', contains('does not apply'))),
+        );
+      }
+      expect(d.isAlive, isTrue);
+    });
+  });
 }
