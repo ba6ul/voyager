@@ -45,7 +45,16 @@ class WirelessManager {
     } catch (_) {}
 
     stdout.writeln('[w] switching $serial to TCP mode...');
-    await client.tcpip(serial, devicePort);
+    try {
+      await client.tcpip(serial, devicePort);
+    } catch (e) {
+      // Unknown or just-unplugged serial (AdbServerException), adb server
+      // gone (SocketException), ...: report it instead of throwing past the
+      // caller, which is a fire-and-forget task.
+      stdout.writeln('[w] tcpip failed: $e');
+      onStatus?.call('failed', 'tcpip failed: $e');
+      return null;
+    }
     onStatus?.call('tcpipEnabled');
 
     stdout.writeln('''
