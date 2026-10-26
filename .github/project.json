@@ -1,0 +1,10 @@
+{
+  "$schema": "https://raw.githubusercontent.com/ba6ul/.github/main/schema/project.schema.json",
+  "checks": {
+    "toolchain": "dart",
+    "analyze": "for p in core ipc daemon; do (cd packages/$p && dart pub get && dart analyze) || exit 1; done",
+    "test": "for p in core daemon; do (cd packages/$p && dart pub get && dart test) || exit 1; done"
+  },
+  "labels": { "optional": ["maintenance", "documentation"] },
+  "release": { "profile": "tag-only", "changelog": "RELEASE_NOTES.md" }
+}
