@@ -7,6 +7,7 @@ import 'package:scrcpy_daemon/src/config.dart';
 import 'package:scrcpy_daemon/src/device_tracker.dart';
 import 'package:scrcpy_daemon/src/guarded.dart';
 import 'package:scrcpy_daemon/src/handoff.dart';
+import 'package:scrcpy_daemon/src/in_flight_operations.dart';
 import 'package:scrcpy_daemon/src/known_devices.dart';
 import 'package:scrcpy_daemon/src/scrcpy_launcher.dart';
 import 'package:scrcpy_daemon/src/wireless.dart';
@@ -66,11 +67,13 @@ Future<void> _run(List<String> args) async {
 
   var known = <String, AdbDevice>{};
   final modelNames = <String, String>{};
-  // Serials with a handoff currently in flight, so the ambient auto-launch
-  // below doesn't race it: `adb tcpip` restarts adbd, which briefly drops
-  // and then reconnects the USB transport on its own (cable's still in),
-  // and without this guard that reconnect looks like a fresh plug-in.
-  final handoffInFlight = <String>{};
+  // USB serials with a Go Wireless or handoff in flight. A second request
+  // for the same phone is rejected, and the reconnector leaves the phone
+  // alone meanwhile. Auto-launch is held back only during a handoff: `adb
+  // tcpip` restarts adbd, which briefly drops and then reconnects the USB
+  // transport on its own (cable's still in), and without this guard that
+  // reconnect looks like a fresh plug-in and races the handoff's own launch.
+  final inFlight = InFlightOperations();
   // Debounces auto-launch: adb's own track-devices stream can keep flapping
   // (device -> offline -> unknown -> ... -> device) for a brief moment right
   // after a plug/replug as the connection actually settles. Launching the
@@ -88,7 +91,7 @@ Future<void> _run(List<String> args) async {
     () => ReconnectSnapshot(
       cached: knownWireless,
       live: known,
-      handoffInFlight: handoffInFlight,
+      handoffInFlight: inFlight.serials,
     ),
     onTick: (reconnected) {
       for (final serial in reconnected) {
@@ -144,9 +147,26 @@ Future<void> _run(List<String> args) async {
   // escapes them would end the daemon. goWireless/handoff report the failures
   // they expect through onStatus; `guarded` catches anything else and sends
   // the same `failed` status so a UI is not left waiting.
-  Future<void> runGoWireless(String serial) => guarded(
-        'goWireless $serial',
-        () async {
+  //
+  // Each reserves the phone in `inFlight` before doing anything else, so a
+  // second Go Wireless or handoff for it is turned away, not run alongside.
+  // They return why a request was turned away, or null once it has started.
+  String describeBusy(String running, String requested) => running == requested
+      ? '$running is already in progress for this phone'
+      : '$running is in progress for this phone, so $requested was not started';
+
+  String? startGoWireless(String serial) {
+    final running = inFlight.tryStart(serial, InFlightOperations.goWireless);
+    if (running != null) {
+      final reason = describeBusy(running, InFlightOperations.goWireless);
+      stdout.writeln('[w] $serial: $reason');
+      ipc.broadcast(IpcEvent.wirelessStatus(serial, 'alreadyRunning', reason));
+      return reason;
+    }
+    unawaited(guarded(
+      'goWireless $serial',
+      () async {
+        try {
           final networkSerial = await wireless.goWireless(
             serial,
             onStatus: (stage, [detail]) =>
@@ -159,14 +179,28 @@ Future<void> _run(List<String> args) async {
           } else {
             await rememberWirelessSafely(serial, networkSerial);
           }
-        },
-        onError: (error, _) => ipc.broadcast(
-            IpcEvent.wirelessStatus(serial, 'failed', error.toString())),
-      );
+        } finally {
+          inFlight.finish(serial);
+        }
+      },
+      onError: (error, _) => ipc.broadcast(
+          IpcEvent.wirelessStatus(serial, 'failed', error.toString())),
+    ));
+    return null;
+  }
 
-  Future<void> runHandoff(String serial) => guarded(
-        'handoff $serial',
-        () async {
+  String? startHandoff(String serial) {
+    final running = inFlight.tryStart(serial, InFlightOperations.handoff);
+    if (running != null) {
+      final reason = describeBusy(running, InFlightOperations.handoff);
+      stdout.writeln('[h] $serial: $reason');
+      ipc.broadcast(IpcEvent.handoffStatus(serial, 'alreadyRunning', reason));
+      return reason;
+    }
+    unawaited(guarded(
+      'handoff $serial',
+      () async {
+        try {
           if (!launcher.isRunning(serial)) {
             stdout.writeln('[h] no running USB mirror to hand off for $serial');
             return;
@@ -195,27 +229,27 @@ Future<void> _run(List<String> args) async {
                     'it to TCP mode; wait for it to reconnect and try again'));
             return;
           }
-          handoffInFlight.add(serial);
-          try {
-            final wirelessSerial = await handoff(
-              client: client,
-              launcher: launcher,
-              usbSerial: serial,
-              deviceName: name,
-              onStatus: (stage, [detail]) =>
-                  ipc.broadcast(IpcEvent.handoffStatus(serial, stage, detail)),
-              onTcpipUnconfirmed: () => wireless.markUncertain(serial),
-            );
-            if (wirelessSerial != null) {
-              await rememberWirelessSafely(serial, wirelessSerial);
-            }
-          } finally {
-            handoffInFlight.remove(serial);
+          final wirelessSerial = await handoff(
+            client: client,
+            launcher: launcher,
+            usbSerial: serial,
+            deviceName: name,
+            onStatus: (stage, [detail]) =>
+                ipc.broadcast(IpcEvent.handoffStatus(serial, stage, detail)),
+            onTcpipUnconfirmed: () => wireless.markUncertain(serial),
+          );
+          if (wirelessSerial != null) {
+            await rememberWirelessSafely(serial, wirelessSerial);
           }
-        },
-        onError: (error, _) => ipc.broadcast(
-            IpcEvent.handoffStatus(serial, 'failed', error.toString())),
-      );
+        } finally {
+          inFlight.finish(serial);
+        }
+      },
+      onError: (error, _) => ipc.broadcast(
+          IpcEvent.handoffStatus(serial, 'failed', error.toString())),
+    ));
+    return null;
+  }
 
   Future<void> runUsbMode(String serial) async {
     final device = known[serial];
@@ -245,7 +279,7 @@ Future<void> _run(List<String> args) async {
           return;
         }
         if (!config.autoLaunch) return;
-        if (handoffInFlight.contains(serial)) {
+        if (inFlight.runningFor(serial) == InFlightOperations.handoff) {
           stdout.writeln('[=] skipping auto-launch for $serial; handoff in progress');
           return;
         }
@@ -314,11 +348,15 @@ Future<void> _run(List<String> args) async {
           launcher.stopAll();
           return {};
         case IpcCommands.goWireless:
-          unawaited(runGoWireless(requireSerial()));
-          return {'started': true};
+          final goReason = startGoWireless(requireSerial());
+          return goReason == null
+              ? {'started': true}
+              : {'started': false, 'reason': goReason};
         case IpcCommands.handoff:
-          unawaited(runHandoff(requireSerial()));
-          return {'started': true};
+          final handoffReason = startHandoff(requireSerial());
+          return handoffReason == null
+              ? {'started': true}
+              : {'started': false, 'reason': handoffReason};
         case IpcCommands.usbMode:
           await runUsbMode(requireSerial());
           return {};
@@ -335,7 +373,7 @@ Future<void> _run(List<String> args) async {
             ReconnectSnapshot(
               cached: {serial: entry},
               live: known,
-              handoffInFlight: handoffInFlight,
+              handoffInFlight: inFlight.serials,
             ),
           );
           stdout.writeln(switch (outcome) {
@@ -415,7 +453,7 @@ Future<void> _run(List<String> args) async {
           stdout.writeln('[w] no USB device connected; plug in first');
           return;
         }
-        unawaited(runGoWireless(usb.first.serial));
+        startGoWireless(usb.first.serial);
         break;
       case 'h':
         final handoffUsb = known.values
@@ -427,7 +465,7 @@ Future<void> _run(List<String> args) async {
               'l=list or launch one first');
           return;
         }
-        unawaited(runHandoff(handoffUsb.first.serial));
+        startHandoff(handoffUsb.first.serial);
         break;
       case 'u':
         for (final d in known.values.where((d) => d.isReady)) {

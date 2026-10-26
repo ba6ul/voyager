@@ -10,8 +10,11 @@ abstract final class IpcCommands {
   static const launch = 'launch'; // args: {serial}
   static const stop = 'stop'; // args: {serial}
   static const stopAll = 'stopAll';
-  static const goWireless = 'goWireless'; // args: {serial}
-  static const handoff = 'handoff'; // args: {serial}
+  // args: {serial}. Replies {started: true}, or {started: false, reason} if a
+  // Go Wireless or handoff is already in progress for that phone.
+  static const goWireless = 'goWireless';
+  // args: {serial}. Same reply shape as goWireless.
+  static const handoff = 'handoff';
   static const usbMode = 'usbMode'; // args: {serial}
   // args: {serial} (== cached usbSerial). Replies after one connect attempt
   // (at most ~5 s) with {outcome: reconnected|unreachable|skipped, address}.
@@ -36,13 +39,16 @@ abstract final class IpcEvents {
   static const scrcpyExited = 'scrcpyExited';
 
   /// Progress of the wireless flow. data: {serial, stage, detail?}
-  /// Stages: waitingForPhone (detail = why; only when a previous request went
-  ///         unanswered), readingWifiIp, tcpipEnabled, waitingForHotspot, connecting,
+  /// Stages: alreadyRunning (detail = why; a request was turned away because
+  ///         another operation is running for the phone), waitingForPhone
+  ///         (detail = why; only when a previous request went unanswered),
+  ///         readingWifiIp, tcpipEnabled, waitingForHotspot, connecting,
   ///         connected (detail = network serial), failed (detail = reason)
   static const wirelessStatus = 'wirelessStatus';
 
   /// Progress of an in-flight handoff (USB -> wireless). data: {serial, stage, detail?}
-  /// Stages: waitingForPhone (as above), readingWifiIp, tcpipEnabled,
+  /// Stages: alreadyRunning (as above), waitingForPhone (as above),
+  ///         readingWifiIp, tcpipEnabled,
   ///         tcpipUnconfirmed (no acknowledgement; trying to connect anyway),
   ///         connecting, launchingWireless,
   ///         closingUsb, complete (detail = network serial), failed (detail = reason)
