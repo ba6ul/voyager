@@ -303,5 +303,53 @@ void main() {
 
       expect(await m.settle('nope'), isTrue);
     });
+
+    test('a retry says it is waiting for the phone before doing anything',
+        () async {
+      final m = manager();
+      server.stallTcpipReplies(true);
+      await run(m);
+      server.stallTcpipReplies(false);
+      server.setDevices('FAKESERIAL\toffline\n');
+      final statuses = <String>[];
+
+      final retry = m.goWireless(
+        'FAKESERIAL',
+        timeout: const Duration(seconds: 5),
+        onStatus: (stage, [detail]) => statuses.add(stage),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(statuses, ['waitingForPhone'],
+          reason: 'the wait is visible while it lasts, before any other step');
+
+      server.setDevices('FAKESERIAL\tdevice\n192.168.43.1:5555\tdevice\n');
+      await retry;
+
+      expect(statuses.take(2), ['waitingForPhone', 'readingWifiIp']);
+    });
+
+    test('settle reports nothing when no request is outstanding', () async {
+      final statuses = <String>[];
+
+      final ok = await manager().settle('FAKESERIAL',
+          onStatus: (stage, [detail]) => statuses.add(stage));
+
+      expect(ok, isTrue);
+      expect(statuses, isEmpty);
+    });
+
+    test('markUncertain makes the next settle wait for a ready phone',
+        () async {
+      final m = manager(settleTimeout: const Duration(milliseconds: 300));
+      m.markUncertain('FAKESERIAL');
+      server.setDevices('');
+      expect(await m.settle('FAKESERIAL'), isFalse);
+
+      server.setDevices('FAKESERIAL\tdevice\n');
+      expect(await m.settle('FAKESERIAL'), isTrue);
+      // Once settled, the mark is gone.
+      server.setDevices('');
+      expect(await m.settle('FAKESERIAL'), isTrue);
+    });
   });
 }

@@ -44,13 +44,31 @@ class WirelessManager {
 
   static const devicePort = 5555;
 
+  /// Records that the phone's state after a `tcpip` request is unknown (it
+  /// timed out and was not followed by a confirmed connection), so the next
+  /// operation on it calls [settle] first.
+  void markUncertain(String serial) => _uncertain.add(serial);
+
   /// Makes sure the phone's real state is known before something new is
   /// sent to it. A no-op (true) unless an earlier `tcpip` for [serial] timed
   /// out; then it waits for the phone to show up as ready in adb and stay
   /// ready across two checks (so an adbd restart that is still under way does
   /// not count), and returns false if that does not happen in time.
-  Future<bool> settle(String serial) async {
+  ///
+  /// The wait is reported through [onStatus] as `waitingForPhone` (and in the
+  /// daemon log) so it is not silent; the caller reports the failure if this
+  /// returns false.
+  Future<bool> settle(
+    String serial, {
+    void Function(String stage, [String? detail])? onStatus,
+  }) async {
     if (!_uncertain.contains(serial)) return true;
+    stdout.writeln('[w] waiting up to ${settleTimeout.inSeconds} s for $serial '
+        'to be ready again after an unanswered request');
+    onStatus?.call(
+        'waitingForPhone',
+        'the phone did not answer the last request; waiting up to '
+            '${settleTimeout.inSeconds} s for it to be ready');
     final deadline = DateTime.now().add(settleTimeout);
     var readyChecks = 0;
     while (DateTime.now().isBefore(deadline)) {
@@ -83,7 +101,7 @@ class WirelessManager {
   }) async {
     // An earlier attempt may have timed out without the phone having
     // answered; do not send it anything new until it is back and ready.
-    if (!await settle(serial)) {
+    if (!await settle(serial, onStatus: onStatus)) {
       stdout.writeln('[w] $serial has not settled after the previous attempt');
       onStatus?.call(
           'failed',

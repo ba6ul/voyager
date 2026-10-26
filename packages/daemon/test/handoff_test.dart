@@ -279,5 +279,85 @@ void main() {
       expect(launcher.launches, isEmpty);
       expect(launcher.stops, isEmpty);
     });
+
+    group('when the phone does not acknowledge tcpip', () {
+      const shortTcpip = Duration(milliseconds: 150);
+
+      test('it is reported as unconfirmed, not enabled, and still hands off '
+          'when the phone is reachable', () async {
+        await launcher.launch('FAKESERIAL', windowTitle: 'Pixel 7');
+        server.stallTcpipReplies(true);
+        server.setDevices('FAKESERIAL\tdevice\n$_phoneWifiSerial\tdevice\n');
+        final statuses = <String>[];
+        var unconfirmedReported = false;
+
+        final result = await handoff(
+          client: client,
+          launcher: launcher,
+          usbSerial: 'FAKESERIAL',
+          deviceName: 'Pixel 7',
+          gateways: _noGateways,
+          tcpipTimeout: shortTcpip,
+          timeout: const Duration(seconds: 5),
+          onStatus: (stage, [detail]) => statuses.add(stage),
+          onTcpipUnconfirmed: () => unconfirmedReported = true,
+        );
+
+        expect(result, _phoneWifiSerial);
+        expect(statuses, contains('tcpipUnconfirmed'));
+        expect(statuses, isNot(contains('tcpipEnabled')),
+            reason: 'nothing confirmed the switch');
+        expect(statuses.last, 'complete');
+        // A confirmed wireless connection settles the question.
+        expect(unconfirmedReported, isFalse);
+      });
+
+      test('and the handoff then fails, the phone is flagged as uncertain and '
+          'the USB mirror is left running', () async {
+        await launcher.launch('FAKESERIAL', windowTitle: 'Pixel 7');
+        server.stallTcpipReplies(true);
+        final statuses = <String>[];
+        var unconfirmedReported = false;
+
+        final result = await handoff(
+          client: client,
+          launcher: launcher,
+          usbSerial: 'FAKESERIAL',
+          deviceName: 'Pixel 7',
+          gateways: _noGateways,
+          tcpipTimeout: shortTcpip,
+          timeout: const Duration(seconds: 1),
+          onStatus: (stage, [detail]) => statuses.add(stage),
+          onTcpipUnconfirmed: () => unconfirmedReported = true,
+        );
+
+        expect(result, isNull);
+        expect(statuses.last, 'failed');
+        expect(unconfirmedReported, isTrue,
+            reason: 'the late tcpip may still switch the phone');
+        expect(launcher.stops, isEmpty);
+        expect(launcher.isRunning('FAKESERIAL'), isTrue);
+      });
+
+      test('an acknowledged tcpip followed by a failed connect is not flagged',
+          () async {
+        await launcher.launch('FAKESERIAL', windowTitle: 'Pixel 7');
+        var unconfirmedReported = false;
+
+        final result = await handoff(
+          client: client,
+          launcher: launcher,
+          usbSerial: 'FAKESERIAL',
+          deviceName: 'Pixel 7',
+          gateways: _noGateways,
+          tcpipTimeout: shortTcpip,
+          timeout: const Duration(seconds: 1),
+          onTcpipUnconfirmed: () => unconfirmedReported = true,
+        );
+
+        expect(result, isNull);
+        expect(unconfirmedReported, isFalse);
+      });
+    });
   });
 }

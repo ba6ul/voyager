@@ -181,7 +181,11 @@ Future<void> _run(List<String> args) async {
           }
           // A Go Wireless that timed out may still complete; make sure the
           // phone is back and ready before sending it anything new.
-          if (!await wireless.settle(serial)) {
+          if (!await wireless.settle(
+            serial,
+            onStatus: (stage, [detail]) =>
+                ipc.broadcast(IpcEvent.handoffStatus(serial, stage, detail)),
+          )) {
             stdout.writeln('[h] $serial has not settled after a previous '
                 'attempt; not starting a handoff');
             ipc.broadcast(IpcEvent.handoffStatus(
@@ -200,6 +204,7 @@ Future<void> _run(List<String> args) async {
               deviceName: name,
               onStatus: (stage, [detail]) =>
                   ipc.broadcast(IpcEvent.handoffStatus(serial, stage, detail)),
+              onTcpipUnconfirmed: () => wireless.markUncertain(serial),
             );
             if (wirelessSerial != null) {
               await rememberWirelessSafely(serial, wirelessSerial);

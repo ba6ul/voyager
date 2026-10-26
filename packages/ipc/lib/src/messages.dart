@@ -36,12 +36,15 @@ abstract final class IpcEvents {
   static const scrcpyExited = 'scrcpyExited';
 
   /// Progress of the wireless flow. data: {serial, stage, detail?}
-  /// Stages: readingWifiIp, tcpipEnabled, waitingForHotspot, connecting,
+  /// Stages: waitingForPhone (detail = why; only when a previous request went
+  ///         unanswered), readingWifiIp, tcpipEnabled, waitingForHotspot, connecting,
   ///         connected (detail = network serial), failed (detail = reason)
   static const wirelessStatus = 'wirelessStatus';
 
   /// Progress of an in-flight handoff (USB -> wireless). data: {serial, stage, detail?}
-  /// Stages: readingWifiIp, tcpipEnabled, connecting, launchingWireless,
+  /// Stages: waitingForPhone (as above), readingWifiIp, tcpipEnabled,
+  ///         tcpipUnconfirmed (no acknowledgement; trying to connect anyway),
+  ///         connecting, launchingWireless,
   ///         closingUsb, complete (detail = network serial), failed (detail = reason)
   static const handoffStatus = 'handoffStatus';
 
