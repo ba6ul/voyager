@@ -4,6 +4,7 @@ library;
 import 'dart:io';
 
 import 'package:scrcpy_core/scrcpy_core.dart';
+import 'package:scrcpy_ipc/scrcpy_ipc.dart';
 import 'package:test/test.dart';
 
 import 'support/daemon_harness.dart';
@@ -116,5 +117,86 @@ void main() {
 
     expect(d.isAlive, isTrue);
     expect(await d.listDevices(), isEmpty);
+  });
+
+  group('Go Wireless and handoff for one phone', () {
+    Future<void> waitFor(bool Function() condition) async {
+      final deadline = DateTime.now().add(const Duration(seconds: 20));
+      while (!condition()) {
+        if (DateTime.now().isAfter(deadline)) fail('condition not met in 20 s');
+        await Future<void>.delayed(const Duration(milliseconds: 25));
+      }
+    }
+
+    bool hasStage(List<IpcEvent> events, String stage) => events.any((e) =>
+        (e.event == IpcEvents.wirelessStatus ||
+            e.event == IpcEvents.handoffStatus) &&
+        e.data['stage'] == stage);
+
+    Future<(IpcClient, List<IpcEvent>)> connect(DaemonHarness d) async {
+      final client = IpcClient();
+      await client.connect(port: d.ipcPort);
+      addTearDown(client.close);
+      final events = <IpcEvent>[];
+      client.events.listen(events.add);
+      return (client, events);
+    }
+
+    test('a second request is turned away while the first is running',
+        () async {
+      // Regression for #19: only handoff was tracked, so a second Go Wireless
+      // (or a handoff) for the same phone started alongside the first, sent
+      // tcpip again and raced to launch.
+      final d = await startDaemon();
+      await d.waitForLog('[+] Pixel 7');
+      final (client, events) = await connect(d);
+
+      final first = await client
+          .send(IpcCommands.goWireless, {'serial': 'FAKESERIAL'});
+      expect(first.data['started'], isTrue);
+      // Go Wireless now waits for the user to bring up a hotspot.
+      await waitFor(() => hasStage(events, 'waitingForHotspot'));
+
+      final again = await client
+          .send(IpcCommands.goWireless, {'serial': 'FAKESERIAL'});
+      expect(again.data['started'], isFalse);
+      expect(again.data['reason'], contains('already in progress'));
+
+      final handoff =
+          await client.send(IpcCommands.handoff, {'serial': 'FAKESERIAL'});
+      expect(handoff.data['started'], isFalse);
+      expect(handoff.data['reason'], contains('Go Wireless is in progress'));
+
+      // The turned-away requests are visible to a UI, and the running one was
+      // not disturbed: it never reported a failure.
+      await waitFor(() => hasStage(events, 'alreadyRunning'));
+      expect(hasStage(events, 'failed'), isFalse);
+      expect(d.isAlive, isTrue);
+    });
+
+    test('a finished operation releases the phone for the next request',
+        () async {
+      final d = await startDaemon();
+      await d.waitForLog('[+] Pixel 7');
+      final (client, events) = await connect(d);
+      int failures() => events
+          .where((e) =>
+              e.event == IpcEvents.wirelessStatus &&
+              e.data['stage'] == 'failed' &&
+              e.data['serial'] == 'nope')
+          .length;
+
+      // An unknown serial fails at once, so the operation ends quickly.
+      final first =
+          await client.send(IpcCommands.goWireless, {'serial': 'nope'});
+      expect(first.data['started'], isTrue);
+      await waitFor(() => failures() == 1);
+
+      final second =
+          await client.send(IpcCommands.goWireless, {'serial': 'nope'});
+      expect(second.data['started'], isTrue,
+          reason: 'the first request finished, so the phone is free again');
+      await waitFor(() => failures() == 2);
+    });
   });
 }
