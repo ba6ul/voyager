@@ -222,6 +222,80 @@ void main() {
     });
   });
 
+  group('stop while a process is still starting', () {
+    test('closes the mirror as soon as it exists', () async {
+      startGate = Completer<void>();
+      final launcher = newLauncher();
+
+      final launch = launcher.launch('SER1');
+      launcher.stop('SER1');
+      startGate!.complete();
+      await launch;
+
+      expect(started.single.killed, isTrue);
+      expect(launcher.isRunning('SER1'), isFalse);
+
+      started.single.exitWith(143);
+      await settle();
+      expect(exits, [('SER1', 143)]);
+    });
+
+    test('a launch requested after that stop keeps the mirror', () async {
+      // stop() then launch() while the first start is still pending: the
+      // later request wins, so the mirror must not be killed.
+      startGate = Completer<void>();
+      final launcher = newLauncher();
+
+      final first = launcher.launch('SER1');
+      launcher.stop('SER1');
+      final second = launcher.launch('SER1');
+      startGate!.complete();
+
+      expect(await first, isTrue);
+      expect(await second, isFalse);
+      expect(started.single.killed, isFalse);
+      expect(launcher.isRunning('SER1'), isTrue);
+    });
+
+    test('stopAll also closes mirrors that are still starting', () async {
+      startGate = Completer<void>();
+      final launcher = newLauncher();
+
+      final launch = launcher.launch('SER1');
+      launcher.stopAll();
+      startGate!.complete();
+      await launch;
+
+      expect(started.single.killed, isTrue);
+      expect(launcher.isRunning('SER1'), isFalse);
+    });
+
+    test('does not affect another serial', () async {
+      startGate = Completer<void>();
+      final launcher = newLauncher();
+
+      final a = launcher.launch('A');
+      final b = launcher.launch('B');
+      launcher.stop('A');
+      startGate!.complete();
+      await Future.wait([a, b]);
+
+      expect(launcher.isRunning('A'), isFalse);
+      expect(launcher.isRunning('B'), isTrue);
+    });
+
+    test('a stop with nothing starting leaves no trace for the next launch',
+        () async {
+      final launcher = newLauncher();
+
+      launcher.stop('SER1');
+      await launcher.launch('SER1');
+
+      expect(started.single.killed, isFalse);
+      expect(launcher.isRunning('SER1'), isTrue);
+    });
+  });
+
   group('stopAll', () {
     test('kills every mirror and forgets them', () async {
       final launcher = newLauncher();
