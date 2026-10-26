@@ -23,10 +23,12 @@ class DeviceListState extends Equatable {
   /// currently reachable.
   final List<CachedDevice> knownDevices;
 
-  /// Cached devices not currently present in [devices] — i.e. worth showing
-  /// a "previously connected, try reconnecting" row for.
+  /// Cached devices whose phone is not currently in [devices] under any of
+  /// its serials — i.e. worth showing a "previously connected, try
+  /// reconnecting" row for. A phone that is already listed (over USB, its
+  /// wireless address, or wireless debugging) must not also get a pending row.
   List<CachedDevice> get pendingReconnect => knownDevices
-      .where((c) => !devices.any((d) => d.serial == c.networkSerial))
+      .where((c) => !devices.any((d) => c.isRepresentedBy(d.serial)))
       .toList();
 
   DeviceListState copyWith({

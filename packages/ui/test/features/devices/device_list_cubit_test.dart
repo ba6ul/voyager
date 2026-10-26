@@ -204,5 +204,45 @@ void main() {
       );
       expect(state.pendingReconnect, isEmpty);
     });
+
+    test('excludes a cached device that is live over USB', () {
+      final state = DeviceListState(
+        knownDevices: const [cached],
+        devices: const [
+          Device(
+              serial: 'ABC123', state: DeviceState.device, mirroring: false),
+        ],
+      );
+      expect(state.pendingReconnect, isEmpty);
+    });
+
+    test('excludes a cached device that is live as a wireless-debugging serial',
+        () {
+      // Regression: the phone showed up twice, once as the live device and
+      // once as "previously connected" with a Try Now button.
+      final state = DeviceListState(
+        knownDevices: const [cached],
+        devices: const [
+          Device(
+            serial: 'adb-ABC123-HvLNB1._adb-tls-connect._tcp',
+            state: DeviceState.device,
+            mirroring: false,
+          ),
+        ],
+      );
+      expect(state.pendingReconnect, isEmpty);
+    });
+
+    test('keeps a cached device pending when only a different phone is live',
+        () {
+      final state = DeviceListState(
+        knownDevices: const [cached],
+        devices: const [
+          Device(
+              serial: 'R58M12ABCDE', state: DeviceState.device, mirroring: true),
+        ],
+      );
+      expect(state.pendingReconnect, [cached]);
+    });
   });
 }
