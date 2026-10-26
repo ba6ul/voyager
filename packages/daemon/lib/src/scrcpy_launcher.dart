@@ -2,6 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+/// Starts a process. Defaults to [Process.start]; tests substitute a fake.
+typedef ProcessStarter = Future<Process> Function(
+    String executable, List<String> arguments);
+
 /// Manages the lifecycle of standalone `scrcpy` processes.
 ///
 /// This class acts as a single-instance process guard per connected device,
@@ -18,7 +22,8 @@ class ScrcpyLauncher {
     required this.scrcpyPath,
     this.baseArgs = const [],
     this.onExit,
-  });
+    ProcessStarter? processStarter,
+  }) : _start = processStarter ?? Process.start;
 
   final String scrcpyPath;
   final List<String> baseArgs;
@@ -28,11 +33,20 @@ class ScrcpyLauncher {
   /// dropping out from under it during a `tcpip` restart).
   final void Function(String serial, int exitCode)? onExit;
 
+  final ProcessStarter _start;
+
   final Map<String, Process> _running = {};
 
-  bool isRunning(String serial) => _running.containsKey(serial);
+  /// Serials whose scrcpy is being started: the slot is reserved before the
+  /// first `await`, so a second launch for the same serial cannot slip in
+  /// while [Process.start] is still pending.
+  final Set<String> _starting = {};
 
-  /// Launches scrcpy for [serial]. Returns false if one is already running for that device.
+  bool isRunning(String serial) =>
+      _running.containsKey(serial) || _starting.contains(serial);
+
+  /// Launches scrcpy for [serial]. Returns false if one is already running
+  /// (or being started) for that device.
   Future<bool> launch(
     String serial, {
     String? windowTitle,
@@ -48,7 +62,13 @@ class ScrcpyLauncher {
       ...extraArgs,
     ];
 
-    final process = await Process.start(scrcpyPath, args);
+    _starting.add(serial);
+    final Process process;
+    try {
+      process = await _start(scrcpyPath, args);
+    } finally {
+      _starting.remove(serial);
+    }
     _running[serial] = process;
 
     // Surface scrcpy's own errors in the daemon log, drop the noise.
@@ -61,9 +81,14 @@ class ScrcpyLauncher {
     process.stdout.drain<void>();
 
     unawaited(process.exitCode.then((code) {
-      _running.remove(serial);
+      // The entry under [serial] may belong to a newer process by now (stop()
+      // followed by launch()). Only clear and report it if it is still ours;
+      // a superseded process must not make a live mirror look closed.
+      final current = _running[serial];
+      final superseded = current != null && !identical(current, process);
+      if (!superseded) _running.remove(serial);
       stdout.writeln('[x] scrcpy for $serial closed (exit $code)');
-      onExit?.call(serial, code);
+      if (!superseded) onExit?.call(serial, code);
     }));
     return true;
   }
