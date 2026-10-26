@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:scrcpy_core/scrcpy_core.dart';
 import 'package:scrcpy_daemon/src/config.dart';
+import 'package:scrcpy_daemon/src/device_tracker.dart';
 import 'package:scrcpy_daemon/src/guarded.dart';
 import 'package:scrcpy_daemon/src/handoff.dart';
 import 'package:scrcpy_daemon/src/known_devices.dart';
@@ -241,15 +242,27 @@ Future<void> _run(List<String> args) async {
     ));
   }
 
-  Future<void> onReady(AdbDevice device) async {
-    final name = await client.model(device.serial);
-    modelNames[device.serial] = name;
-    final kind = device.isNetwork ? 'wireless' : 'USB';
-    stdout.writeln('[+] $name (${device.serial}) connected via $kind');
-    ipc.broadcast(IpcEvent.deviceReady(device.serial, model: name));
+  // Owns the per-snapshot logic. A device becoming ready is handled off the
+  // tracking loop (see DeviceTracker), so a slow model lookup cannot stall it.
+  final tracker = DeviceTracker(
+    client: client,
+    modelNames: modelNames,
+    onReady: (device, name) async {
+      final kind = device.isNetwork ? 'wireless' : 'USB';
+      stdout.writeln('[+] $name (${device.serial}) connected via $kind');
+      ipc.broadcast(IpcEvent.deviceReady(device.serial, model: name));
 
-    scheduleAutoLaunch(device.serial, name);
-  }
+      scheduleAutoLaunch(device.serial, name);
+    },
+    onGone: (serial) {
+      ipc.broadcast(IpcEvent.deviceGone(serial));
+      pendingLaunchTimers.remove(serial)?.cancel();
+    },
+    onChanged: (current) {
+      known = current;
+      broadcastDevices();
+    },
+  );
 
   ipc = IpcServer(
     onLog: (message) => stdout.writeln('[ipc] $message'),
@@ -443,32 +456,7 @@ Future<void> _run(List<String> args) async {
   while (true) {
     try {
       await for (final snapshot in client.trackDevices()) {
-        final current = {for (final d in snapshot) d.serial: d};
-
-        for (final device in current.values) {
-          final previous = known[device.serial];
-          final becameReady =
-              device.isReady && (previous == null || !previous.isReady);
-          if (previous == null) {
-            _logAttached(device);
-          } else if (previous.state != device.state) {
-            stdout.writeln('[~] ${device.serial}: '
-                '${previous.state.name} -> ${device.state.name}');
-          }
-          if (becameReady) {
-            known = {...known, device.serial: device};
-            await onReady(device);
-          }
-        }
-        for (final serial in known.keys) {
-          if (!current.containsKey(serial)) {
-            stdout.writeln('[-] $serial disconnected');
-            ipc.broadcast(IpcEvent.deviceGone(serial));
-            pendingLaunchTimers.remove(serial)?.cancel();
-          }
-        }
-        known = current;
-        broadcastDevices();
+        tracker.handleSnapshot(snapshot);
       }
       stdout.writeln('track-devices stream closed, reconnecting...');
     } catch (e) {
@@ -482,15 +470,5 @@ Future<void> _run(List<String> args) async {
       // next pass of this loop tries again.
       stdout.writeln('could not start the adb server ($e), retrying in 2s...');
     }
-  }
-}
-
-void _logAttached(AdbDevice device) {
-  if (device.state == AdbDeviceState.unauthorized) {
-    stdout.writeln('[!] ${device.serial} connected but unauthorized: '
-        'accept the prompt on the phone');
-  } else if (!device.isReady) {
-    stdout.writeln(
-        '[?] ${device.serial} attached in state ${device.state.name}');
   }
 }
