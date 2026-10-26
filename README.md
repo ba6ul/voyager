@@ -36,7 +36,7 @@ Verified against a real Pixel 10a.
 | Go Wireless over the phone's hotspot, survives unplugging USB | Working |
 | Handoff: one command swaps an active USB mirror to wireless in place | Working |
 | Automatic reconnect: a phone that's gone wireless before reconnects on its own | Working |
-| Flutter UI and tray icon | In progress, not published yet |
+| Flutter tray UI: device list, Play/Stop, Go Wireless, Handoff, retry of remembered phones | Early: builds and connects to the daemon; no settings screen yet |
 | Installer with bundled adb/scrcpy binaries | Not started |
 
 ## Requirements
@@ -46,6 +46,9 @@ Verified against a real Pixel 10a.
 - `adb` and `scrcpy` on PATH, or their paths set in `config.json`. Bundled
   binaries are planned but not built yet — see the issue tracker.
 - USB debugging enabled on the phone
+- Only to run the tray UI: Flutter with Windows desktop support (Visual Studio
+  with the C++ desktop workload). CI uses Flutter 3.32.2. Check with
+  `flutter doctor`.
 
 ## Run it
 
@@ -88,6 +91,24 @@ It holds the adb path, the scrcpy path, `autoLaunch`, and the IPC port. A
 second file, `known_wireless_devices.json` in the same folder, remembers which
 devices have gone wireless before, for automatic reconnect.
 
+## Run the tray UI (optional)
+
+The UI is a separate process that talks to the running daemon. Start the daemon
+as above, then in a second terminal:
+
+```powershell
+cd packages\ui
+flutter pub get
+flutter run -d windows
+```
+
+The window starts hidden and only a tray icon appears. It pops up when a
+device becomes ready; click the tray icon to show it at any time. The close
+button hides the window, and **Quit** in the tray menu exits the UI (the daemon
+keeps running). The UI connects to `127.0.0.1:38765` and retries every 2
+seconds, so it does not matter which one you start first. It does not read
+`config.json`, so if you change `ipcPort` there the UI will not find the daemon.
+
 ## Going wireless
 
 Two ways to do it, depending on whether a mirror is already open:
@@ -111,7 +132,7 @@ daemon reconnects it on its own within a few seconds — no `w`/`h` needed again
 ## How it is put together
 
 ```
-UI (Flutter Windows)      tray, popups, settings        in progress, unpublished
+UI (Flutter Windows)      tray, device list popup       early; settings not built
         |  NDJSON over loopback TCP
 Daemon (Dart CLI)         device tracking, launching,   working
         |                 wireless orchestration, reconnect cache
@@ -133,24 +154,45 @@ adb server
 - **`packages/ipc`** is the NDJSON message contract between daemon and UI, plus
   a loopback socket server and client — wired into the daemon, driving the same
   commands as the stdin interface.
-- **`packages/ui`** (Flutter Windows tray app) is in progress on a separate
-  branch, not yet part of this published repo.
+- **`packages/ui`** is the Flutter Windows tray app. It is a thin client of the
+  daemon: it connects to the IPC port, shows the device list the daemon pushes,
+  and sends the same commands the stdin keys do. See
+  [packages/ui/README.md](packages/ui/README.md).
 - **`vendor/`** is where bundled adb and scrcpy builds will go for packaging.
   Not committed yet.
 
 ## Tests
 
+Each package is tested on its own. None of the tests need a phone, adb, or
+scrcpy: they use an in-process fake adb server, fake repositories, and
+OS-assigned loopback ports.
+
 ```powershell
 cd packages\core
-dart test   # 21 tests: protocol units + fake-server integration
+dart pub get
+dart test   # protocol units + fake-server integration
+
+cd ..\ipc
+dart pub get
+dart test   # message parsing, command round trip, malformed input, shutdown
 
 cd ..\daemon
-dart test   # 16 tests: handoff, wireless reconnect cache, reconnector logic
+dart pub get
+dart test   # handoff, goWireless, gateway parsing, reconnect cache, error guards
+
+cd ..\ui
+flutter pub get
+flutter test   # device list cubit
 ```
+
+`dart analyze` (and `flutter analyze` in `packages\ui`) should report no
+issues. CI runs analyze and test for `core`, `ipc` and `daemon` on Ubuntu and
+Windows, and for `ui` when `packages/ui` or `packages/ipc` change.
 
 ## Known limitations
 
-- No UI yet — terminal only, via the daemon's stdin commands.
+- The UI is early: a tray icon and device list, no settings screen. Anything
+  else is done through `config.json` or the daemon's stdin keys.
 - No installer — clone and run, adb/scrcpy must already be installed separately.
 - The same physical phone can appear as more than one device entry (its USB
   serial and its wireless address aren't yet recognized as the same phone) —
