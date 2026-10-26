@@ -12,7 +12,7 @@ const _windowOptions = WindowOptions(
   size: Size(360, 480),
   center: true,
   skipTaskbar: true,
-  title: 'scrcpy',
+  title: 'Voyager',
   titleBarStyle: TitleBarStyle.normal,
 );
 
@@ -40,7 +40,7 @@ Future<void> main() async {
     },
   );
 
-  runApp(ScrcpyApp(cubit: cubit));
+  runApp(VoyagerApp(cubit: cubit));
 }
 
 /// Clicking the window's close button hides it (the app keeps running in
@@ -54,8 +54,8 @@ class _HideInsteadOfCloseListener extends WindowListener {
   }
 }
 
-class ScrcpyApp extends StatelessWidget {
-  const ScrcpyApp({super.key, required this.cubit});
+class VoyagerApp extends StatelessWidget {
+  const VoyagerApp({super.key, required this.cubit});
 
   final DeviceListCubit cubit;
 
@@ -64,7 +64,7 @@ class ScrcpyApp extends StatelessWidget {
     return BlocProvider.value(
       value: cubit,
       child: MaterialApp(
-        title: 'scrcpy',
+        title: 'Voyager',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.indigo),
         home: const DeviceListPopup(),

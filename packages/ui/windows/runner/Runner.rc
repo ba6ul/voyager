@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.haripin" "\0"
-            VALUE "FileDescription", "scrcpy_ui" "\0"
+            VALUE "FileDescription", "Voyager" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "scrcpy_ui" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.haripin. All rights reserved." "\0"
             VALUE "OriginalFilename", "scrcpy_ui.exe" "\0"
-            VALUE "ProductName", "scrcpy_ui" "\0"
+            VALUE "ProductName", "Voyager" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

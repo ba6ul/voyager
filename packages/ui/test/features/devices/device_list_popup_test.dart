@@ -118,4 +118,32 @@ void main() {
       await tester.pump();
     });
   });
+
+  group('branding', () {
+    testWidgets('the heading is Voyager and scrcpy is credited as the engine',
+        (tester) async {
+      await showPopup(tester);
+
+      expect(
+        find.descendant(
+            of: find.byType(AppBar), matching: find.text('Voyager')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: find.byType(AppBar), matching: find.text('scrcpy')),
+        findsNothing,
+      );
+      expect(find.text('Mirroring by scrcpy'), findsOneWidget);
+    });
+
+    testWidgets('the name is shown even while the daemon is not running',
+        (tester) async {
+      await showPopup(tester);
+      repository.connectedController.add(false);
+      await tester.pump();
+
+      expect(find.text('Daemon not running'), findsOneWidget);
+      expect(find.text('Voyager'), findsOneWidget);
+    });
+  });
 }

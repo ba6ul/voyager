@@ -12,7 +12,16 @@ class DeviceListPopup extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('scrcpy')),
+      appBar: AppBar(title: const Text('Voyager')),
+      // scrcpy is the mirroring engine underneath, not the name of the app.
+      bottomNavigationBar: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Text(
+          'Mirroring by scrcpy',
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ),
       body: BlocBuilder<DeviceListCubit, DeviceListState>(
         builder: (context, state) {
           switch (state.connection) {
