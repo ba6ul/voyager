@@ -92,14 +92,31 @@ class DeviceTracker {
 
   /// The model name, or null if the device does not answer within
   /// [modelTimeout] or the lookup fails (for example it was unplugged between
-  /// the snapshot and the call).
+  /// the snapshot and the call). A lookup that merely timed out keeps running;
+  /// if it answers later the name is filled in (see [_adoptLateModel]).
   Future<String?> _readModel(String serial) async {
+    final lookup = client.model(serial);
     try {
-      return await client.model(serial).timeout(modelTimeout);
+      return await lookup.timeout(modelTimeout);
     } catch (e) {
       _log('[?] could not read the model of $serial ($e); using the serial');
+      _adoptLateModel(serial, lookup);
       return null;
     }
+  }
+
+  /// A device slower than [modelTimeout] was announced under its serial. When
+  /// its answer finally arrives, remember it and tell [onChanged] so the name
+  /// shown to users catches up. Ignored if the device is gone by then, or the
+  /// lookup failed (nothing to adopt).
+  void _adoptLateModel(String serial, Future<String> lookup) {
+    unawaited(lookup.then((model) {
+      if (_known[serial]?.isReady != true) return;
+      if (model.isEmpty || modelNames.containsKey(serial)) return;
+      modelNames[serial] = model;
+      _log('[+] $serial answered late: $model');
+      onChanged?.call(_known);
+    }, onError: (Object _) {}));
   }
 
   void _logAttached(AdbDevice device) {

@@ -4,6 +4,14 @@ import 'package:scrcpy_core/scrcpy_core.dart';
 import 'package:scrcpy_daemon/src/device_tracker.dart';
 import 'package:test/test.dart';
 
+Future<void> _until(bool Function() condition) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 3));
+  while (!condition()) {
+    if (DateTime.now().isAfter(deadline)) fail('condition not met within 3 s');
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+}
+
 AdbDevice _device(String serial, [AdbDeviceState state = AdbDeviceState.device]) =>
     AdbDevice(serial: serial, state: state);
 
@@ -130,6 +138,48 @@ void main() {
 
       expect(ready, [('FAKESERIAL', 'FAKESERIAL')]);
       expect(modelNames, isEmpty, reason: 'a fallback is not stored as a model');
+    });
+
+    test('gets its real name once the device finally answers', () async {
+      // A phone slower than the lookup timeout is first announced under its
+      // serial; its state is unaffected, and the name must catch up instead
+      // of staying a serial until the next replug.
+      server.stallModelReplies(true);
+      readySignal = Completer<void>();
+      final tracker = newTracker(modelTimeout: const Duration(milliseconds: 100));
+
+      tracker.handleSnapshot([_device('FAKESERIAL')]);
+      await readySignal!.future.timeout(const Duration(seconds: 3));
+      expect(ready, [('FAKESERIAL', 'FAKESERIAL')]);
+      expect(tracker.known['FAKESERIAL']?.isReady, isTrue);
+      expect(modelNames, isEmpty);
+      final changesBefore = changes;
+
+      server.stallModelReplies(false);
+      await _until(() => modelNames.containsKey('FAKESERIAL'));
+
+      expect(modelNames['FAKESERIAL'], 'Pixel 7');
+      expect(changes, greaterThan(changesBefore),
+          reason: 'listeners are told so the displayed name can update');
+      expect(tracker.known['FAKESERIAL']?.isReady, isTrue);
+      expect(ready, hasLength(1), reason: 'the device is not announced twice');
+    });
+
+    test('a name that arrives after the device is gone is ignored', () async {
+      server.stallModelReplies(true);
+      readySignal = Completer<void>();
+      final tracker = newTracker(modelTimeout: const Duration(milliseconds: 100));
+
+      tracker.handleSnapshot([_device('FAKESERIAL')]);
+      await readySignal!.future.timeout(const Duration(seconds: 3));
+      tracker.handleSnapshot([]);
+      final changesBefore = changes;
+
+      server.stallModelReplies(false);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(modelNames, isEmpty);
+      expect(changes, changesBefore);
     });
 
     test('is not announced if the device disappeared while we waited',

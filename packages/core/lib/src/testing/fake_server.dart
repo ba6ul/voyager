@@ -9,7 +9,7 @@ class FakeAdbServer {
   final _trackClients = <Socket>[];
   String _devicesPayload = 'FAKESERIAL\tdevice\n';
   bool _stallModelReplies = false;
-  final _stalled = <Socket>[];
+  final _stalled = <Socket, void Function()>{};
   String _ipRouteOutput =
       '192.168.1.0/24 dev wlan0 proto kernel scope link src 192.168.1.42\n';
 
@@ -83,7 +83,11 @@ class FakeAdbServer {
       if (_stallModelReplies && command == 'getprop ro.product.model') {
         // Accept the request and never answer, like a device whose adb
         // transport is busy or wedged.
-        _stalled.add(socket);
+        _stalled[socket] = () {
+          socket.add(ascii.encode('OKAY'));
+          socket.add(utf8.encode('Pixel 7\n'));
+          _end(socket);
+        };
         return true;
       }
       socket.add(ascii.encode('OKAY'));
@@ -111,9 +115,18 @@ class FakeAdbServer {
     return false;
   }
 
-  /// While true, `getprop ro.product.model` (the model-name lookup) is never
-  /// answered. Other requests are unaffected.
-  void stallModelReplies(bool stall) => _stallModelReplies = stall;
+  /// While true, `getprop ro.product.model` (the model-name lookup) is not
+  /// answered. Other requests are unaffected. Setting it back to false
+  /// answers the requests that were held, as a slow device finally would.
+  void stallModelReplies(bool stall) {
+    _stallModelReplies = stall;
+    if (stall) return;
+    final held = _stalled.values.toList();
+    _stalled.clear();
+    for (final reply in held) {
+      reply();
+    }
+  }
 
   /// Sets what `shell:ip route` returns from now on. An empty string models a
   /// phone with no WiFi address (WiFi off, or the phone is the hotspot).
@@ -151,7 +164,7 @@ class FakeAdbServer {
     for (final client in _trackClients) {
       client.destroy();
     }
-    for (final client in _stalled) {
+    for (final client in _stalled.keys) {
       client.destroy();
     }
     await _server.close();
