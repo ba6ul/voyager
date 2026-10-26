@@ -86,10 +86,19 @@ Future<String?> handoff({
   // Step 4: Open new wireless window.
   stdout.writeln('[h] launching wireless mirror...');
   onStatus?.call('launchingWireless');
-  final wirelessLaunched = await launcher.launch(
-    wirelessSerial,
-    windowTitle: '$deviceName (wireless)',
-  );
+  bool wirelessLaunched;
+  try {
+    wirelessLaunched = await launcher.launch(
+      wirelessSerial,
+      windowTitle: '$deviceName (wireless)',
+    );
+  } catch (e) {
+    // e.g. ProcessException when scrcpyPath does not exist. The USB mirror is
+    // untouched at this point, so it keeps running as the fallback.
+    stdout.writeln('[h] wireless launch failed: $e');
+    onStatus?.call('failed', 'scrcpy failed to launch on $wirelessSerial: $e');
+    return null;
+  }
   if (!wirelessLaunched) {
     stdout.writeln('[h] wireless launch failed');
     onStatus?.call('failed', 'scrcpy failed to launch on $wirelessSerial');

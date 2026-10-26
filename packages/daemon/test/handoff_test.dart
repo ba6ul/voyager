@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:scrcpy_core/scrcpy_core.dart';
 import 'package:scrcpy_daemon/src/handoff.dart';
 import 'package:scrcpy_daemon/src/scrcpy_launcher.dart';
@@ -21,6 +23,10 @@ class MockScrcpyLauncher implements ScrcpyLauncher {
   /// Serials that should fail to launch, to simulate scrcpy erroring out.
   final Set<String> failLaunches = {};
 
+  /// Serials whose launch throws, like `Process.start` does when the scrcpy
+  /// binary does not exist.
+  final Set<String> throwLaunches = {};
+
   @override
   Future<bool> launch(
     String serial, {
@@ -28,6 +34,9 @@ class MockScrcpyLauncher implements ScrcpyLauncher {
     List<String> extraArgs = const [],
   }) async {
     launches.add(LaunchCall(serial, windowTitle, extraArgs));
+    if (throwLaunches.contains(serial)) {
+      throw ProcessException('mock-scrcpy', ['-s', serial], 'file not found');
+    }
     if (failLaunches.contains(serial)) return false;
     _running[serial] = true;
     return true;
@@ -217,6 +226,51 @@ void main() {
         'closingUsb',
         'complete',
       ]);
+    });
+
+    test('handoff fails cleanly when the wireless scrcpy cannot be started',
+        () async {
+      await launcher.launch('FAKESERIAL', windowTitle: 'Pixel 7');
+      launcher.throwLaunches.add(_phoneWifiSerial);
+      server.setDevices('FAKESERIAL\tdevice\n$_phoneWifiSerial\tdevice\n');
+      final statuses = <String>[];
+
+      final result = await handoff(
+        client: client,
+        launcher: launcher,
+        usbSerial: 'FAKESERIAL',
+        deviceName: 'Pixel 7',
+        gateways: _noGateways,
+        timeout: const Duration(seconds: 5),
+        onStatus: (stage, [detail]) => statuses.add('$stage:${detail ?? ''}'),
+      );
+
+      expect(result, isNull);
+      expect(statuses.last, startsWith('failed:'));
+      expect(statuses.last, contains('file not found'));
+      // The USB mirror is the fallback and must be left alone.
+      expect(launcher.stops, isEmpty);
+      expect(launcher.isRunning('FAKESERIAL'), isTrue);
+    });
+
+    test('handoff for a serial adb does not know fails cleanly', () async {
+      final statuses = <String>[];
+
+      final result = await handoff(
+        client: client,
+        launcher: launcher,
+        usbSerial: 'nope',
+        deviceName: 'Pixel 7',
+        gateways: _noGateways,
+        timeout: const Duration(seconds: 2),
+        onStatus: (stage, [detail]) => statuses.add('$stage:${detail ?? ''}'),
+      );
+
+      expect(result, isNull);
+      expect(statuses.last, startsWith('failed:tcpip failed'));
+      expect(statuses.last, contains("device 'nope' not found"));
+      expect(launcher.launches, isEmpty);
+      expect(launcher.stops, isEmpty);
     });
   });
 }

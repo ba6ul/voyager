@@ -140,5 +140,45 @@ void main() {
       expect(result, isNull);
       expect(stages.last, 'failed');
     });
+
+    test('an unknown serial reports a failure instead of throwing', () async {
+      // Regression for #14: this used to throw AdbServerException out of
+      // goWireless, and because the daemon runs the flow fire-and-forget, the
+      // exception ended the whole process.
+      final statuses = <String>[];
+
+      final result = await WirelessManager(
+        client,
+        gateways: () async => <String>{},
+      ).goWireless(
+        'nope',
+        timeout: const Duration(seconds: 1),
+        onStatus: (stage, [detail]) => statuses.add('$stage:${detail ?? ''}'),
+      );
+
+      expect(result, isNull);
+      expect(statuses.last, startsWith('failed:tcpip failed'));
+      expect(statuses.last, contains("device 'nope' not found"));
+      expect(statuses, isNot(contains('tcpipEnabled:')));
+      expect(statuses, isNot(contains('waitingForHotspot:')));
+    });
+
+    test('an unreachable adb server reports a failure instead of throwing',
+        () async {
+      final deadClient = AdbClient(port: 1);
+      final statuses = <String>[];
+
+      final result = await WirelessManager(
+        deadClient,
+        gateways: () async => <String>{},
+      ).goWireless(
+        'FAKESERIAL',
+        timeout: const Duration(seconds: 1),
+        onStatus: (stage, [detail]) => statuses.add(stage),
+      );
+
+      expect(result, isNull);
+      expect(statuses.last, 'failed');
+    });
   });
 }
