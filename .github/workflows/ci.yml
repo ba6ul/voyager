@@ -3,6 +3,9 @@ name: ci
 
 on:
   pull_request:
+  # Also check what actually lands on main (merge commits, direct pushes).
+  push:
+    branches: [main]
 
 permissions:
   contents: read
