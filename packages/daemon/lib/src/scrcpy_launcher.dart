@@ -6,6 +6,17 @@ import 'dart:io';
 typedef ProcessStarter = Future<Process> Function(
     String executable, List<String> arguments);
 
+/// What [ScrcpyLauncher.launch] did. A launch that cannot start scrcpy at all
+/// (for example a missing binary) throws instead.
+enum LaunchResult {
+  /// A new scrcpy process was started for the serial.
+  started,
+
+  /// A mirror for the serial is already running (or being started); nothing
+  /// was done, and the device is mirrored as wanted.
+  alreadyRunning,
+}
+
 /// Manages the lifecycle of standalone `scrcpy` processes.
 ///
 /// This class acts as a single-instance process guard per connected device,
@@ -45,14 +56,15 @@ class ScrcpyLauncher {
   bool isRunning(String serial) =>
       _running.containsKey(serial) || _starting.contains(serial);
 
-  /// Launches scrcpy for [serial]. Returns false if one is already running
-  /// (or being started) for that device.
-  Future<bool> launch(
+  /// Launches scrcpy for [serial]. Returns [LaunchResult.alreadyRunning] if
+  /// one is already running (or being started) for that device, and throws if
+  /// the process cannot be started.
+  Future<LaunchResult> launch(
     String serial, {
     String? windowTitle,
     List<String> extraArgs = const [],
   }) async {
-    if (isRunning(serial)) return false;
+    if (isRunning(serial)) return LaunchResult.alreadyRunning;
 
     final args = <String>[
       '-s',
@@ -90,7 +102,7 @@ class ScrcpyLauncher {
       stdout.writeln('[x] scrcpy for $serial closed (exit $code)');
       if (!superseded) onExit?.call(serial, code);
     }));
-    return true;
+    return LaunchResult.started;
   }
 
   /// Closes the scrcpy window for [serial], if any.

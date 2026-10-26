@@ -86,9 +86,9 @@ Future<String?> handoff({
   // Step 4: Open new wireless window.
   stdout.writeln('[h] launching wireless mirror...');
   onStatus?.call('launchingWireless');
-  bool wirelessLaunched;
+  final LaunchResult launchResult;
   try {
-    wirelessLaunched = await launcher.launch(
+    launchResult = await launcher.launch(
       wirelessSerial,
       windowTitle: '$deviceName (wireless)',
     );
@@ -99,10 +99,10 @@ Future<String?> handoff({
     onStatus?.call('failed', 'scrcpy failed to launch on $wirelessSerial: $e');
     return null;
   }
-  if (!wirelessLaunched) {
-    stdout.writeln('[h] wireless launch failed');
-    onStatus?.call('failed', 'scrcpy failed to launch on $wirelessSerial');
-    return null;
+  if (launchResult == LaunchResult.alreadyRunning) {
+    // e.g. auto-launch already opened a mirror on this address. That is the
+    // result handoff wants, so carry on and close the USB mirror.
+    stdout.writeln('[h] wireless mirror was already running');
   }
 
   // Step 5: Wait a moment for the new window to fully render.

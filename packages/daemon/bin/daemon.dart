@@ -231,8 +231,8 @@ Future<void> _run(List<String> args) async {
           stdout.writeln('[=] skipping auto-launch for $serial; handoff in progress');
           return;
         }
-        final launched = await launcher.launch(serial, windowTitle: name);
-        stdout.writeln(launched
+        final result = await launcher.launch(serial, windowTitle: name);
+        stdout.writeln(result == LaunchResult.started
             ? '[>] scrcpy launched for $name'
             : '[=] scrcpy already running for $name');
       },
@@ -269,11 +269,14 @@ Future<void> _run(List<String> args) async {
           return {'devices': known.values.map(deviceJson).toList()};
         case IpcCommands.launch:
           final serial = requireSerial();
-          final launched = await launcher.launch(
+          final result = await launcher.launch(
             serial,
             windowTitle: modelNames[serial],
           );
-          return {'launched': launched};
+          return {
+            'launched': result == LaunchResult.started,
+            'alreadyRunning': result == LaunchResult.alreadyRunning,
+          };
         case IpcCommands.stop:
           launcher.stop(requireSerial());
           return {};
@@ -412,8 +415,8 @@ Future<void> _run(List<String> args) async {
         }
         for (final d in toLaunch) {
           final name = modelNames[d.serial] ?? d.serial;
-          final launched = await launcher.launch(d.serial, windowTitle: name);
-          stdout.writeln(launched
+          final result = await launcher.launch(d.serial, windowTitle: name);
+          stdout.writeln(result == LaunchResult.started
               ? '[>] scrcpy launched for $name'
               : '[=] scrcpy already running for $name');
         }
