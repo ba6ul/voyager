@@ -179,6 +179,18 @@ Future<void> _run(List<String> args) async {
               name = serial; // the name only titles the new window
             }
           }
+          // A Go Wireless that timed out may still complete; make sure the
+          // phone is back and ready before sending it anything new.
+          if (!await wireless.settle(serial)) {
+            stdout.writeln('[h] $serial has not settled after a previous '
+                'attempt; not starting a handoff');
+            ipc.broadcast(IpcEvent.handoffStatus(
+                serial,
+                'failed',
+                'the phone has not come back since the last attempt to switch '
+                    'it to TCP mode; wait for it to reconnect and try again'));
+            return;
+          }
           handoffInFlight.add(serial);
           try {
             final wirelessSerial = await handoff(
