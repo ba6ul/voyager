@@ -20,10 +20,27 @@ import 'byte_reader.dart';
 class AdbClient {
   AdbClient({
     this.host = '127.0.0.1',
-    this.port = 5037,
+    int? port,
     this.adbPath = 'adb',
     this.connectTimeout = const Duration(seconds: 3),
-  });
+  }) : port = port ?? defaultPort;
+
+  /// The port adb servers listen on unless told otherwise.
+  static const int standardPort = 5037;
+
+  /// The port used when none is given: `ANDROID_ADB_SERVER_PORT` if it is set
+  /// to a valid port (the variable adb itself honours), otherwise
+  /// [standardPort]. This is what lets tests point a client or the daemon at a
+  /// fake adb server without touching the real one on 5037.
+  static int get defaultPort =>
+      parsePort(Platform.environment['ANDROID_ADB_SERVER_PORT']);
+
+  /// [value] as a port number, or [standardPort] if it is missing or not a
+  /// valid port (1 to 65535).
+  static int parsePort(String? value) {
+    final port = int.tryParse(value ?? '');
+    return port != null && port > 0 && port <= 65535 ? port : standardPort;
+  }
 
   final String host;
   final int port;
@@ -45,7 +62,10 @@ class AdbClient {
       await socket.close();
       socket.destroy();
     } on SocketException {
-      final result = await Process.run(adbPath, ['start-server']);
+      // -P: start the server on the port this client uses, so a client
+      // pointed at a non-standard port never starts one on 5037.
+      final result =
+          await Process.run(adbPath, ['-P', '$port', 'start-server']);
       if (result.exitCode != 0) {
         throw AdbServerException(
           'could not start adb server: ${result.stderr}',
