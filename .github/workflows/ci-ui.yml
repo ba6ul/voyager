@@ -1,0 +1,37 @@
+# Flutter checks for packages/ui. The shared ci workflow runs a single
+# toolchain per repository (Dart), so the UI has its own job; the existing
+# checks are untouched. The Flutter version is pinned to the one the UI is
+# developed and tested with.
+name: ci-ui
+
+on:
+  pull_request:
+    paths:
+      - 'packages/ui/**'
+      - 'packages/ipc/**'
+      - '.github/workflows/ci-ui.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version: 3.32.2
+          cache: true
+
+      - name: Analyze
+        working-directory: packages/ui
+        run: |
+          flutter pub get
+          flutter analyze
+
+      - name: Test
+        working-directory: packages/ui
+        run: flutter test
