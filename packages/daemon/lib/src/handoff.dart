@@ -21,8 +21,15 @@ Future<String?> handoff({
   required String usbSerial,
   required String deviceName,
   Duration timeout = const Duration(seconds: 30),
+  Duration tcpipTimeout = const Duration(seconds: 5),
   GatewayProvider? gateways,
   void Function(String stage, [String? detail])? onStatus,
+
+  /// Called when the `tcpip` request went unanswered and the handoff then
+  /// ended without a confirmed wireless connection: the phone may still
+  /// switch to TCP mode later, so its state is unknown. The caller should
+  /// settle the phone before sending it anything else.
+  void Function()? onTcpipUnconfirmed,
 }) async {
   stdout.writeln('[h] initiating handoff for $deviceName ($usbSerial)...');
 
@@ -42,9 +49,10 @@ Future<String?> handoff({
   }
 
   // Step 2: Switch phone to TCP mode.
+  var tcpipUnanswered = false;
   try {
     stdout.writeln('[h] switching to TCP mode...');
-    await client.tcpip(usbSerial).timeout(const Duration(seconds: 5));
+    await client.tcpip(usbSerial).timeout(tcpipTimeout);
     onStatus?.call('tcpipEnabled');
   } on TimeoutException {
     // adb serializes access to a device's transport, so this can time out
@@ -56,7 +64,11 @@ Future<String?> handoff({
     // step instead of aborting; a genuine tcpip failure (bad serial, adb
     // rejecting the request) throws AdbServerException, not this.
     stdout.writeln('[h] tcpip ack delayed, proceeding anyway (device likely switched)');
-    onStatus?.call('tcpipEnabled');
+    // Not "tcpipEnabled": nothing confirmed it. Say what is known.
+    tcpipUnanswered = true;
+    onStatus?.call('tcpipUnconfirmed',
+        'the phone did not acknowledge the switch to TCP mode; trying to '
+            'connect anyway');
   } catch (e) {
     stdout.writeln('[h] tcpip failed: $e');
     onStatus?.call('failed', 'tcpip failed: $e');
@@ -73,6 +85,10 @@ Future<String?> handoff({
   );
 
   if (wirelessSerial == null) {
+    // Nothing answered at the phone's wireless addresses. If its tcpip request
+    // also went unanswered, the phone may still switch later (restarting adbd
+    // and dropping USB), so let the caller reconcile before the next request.
+    if (tcpipUnanswered) onTcpipUnconfirmed?.call();
     // The tcpip restart can drop the USB transport out from under the
     // window that's mirroring it, so it may already be dead by now.
     final usbStillUp = launcher.isRunning(usbSerial);

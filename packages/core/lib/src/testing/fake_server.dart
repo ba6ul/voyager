@@ -9,6 +9,8 @@ class FakeAdbServer {
   final _trackClients = <Socket>[];
   String _devicesPayload = 'FAKESERIAL\tdevice\n';
   bool _stallModelReplies = false;
+  bool _stallTcpipReplies = false;
+  int _tcpipRequests = 0;
   final _stalled = <Socket, void Function()>{};
   String _ipRouteOutput =
       '192.168.1.0/24 dev wlan0 proto kernel scope link src 192.168.1.42\n';
@@ -102,6 +104,15 @@ class FakeAdbServer {
       return false;
     }
     if (service.startsWith('tcpip:')) {
+      _tcpipRequests++;
+      if (_stallTcpipReplies) {
+        _stalled[socket] = () {
+          socket.add(ascii.encode('OKAY'));
+          socket.add(utf8.encode('restarting in TCP mode port: 5555\n'));
+          _end(socket);
+        };
+        return true;
+      }
       socket.add(ascii.encode('OKAY'));
       socket.add(utf8.encode('restarting in TCP mode port: 5555\n'));
       _end(socket);
@@ -120,7 +131,22 @@ class FakeAdbServer {
   /// answers the requests that were held, as a slow device finally would.
   void stallModelReplies(bool stall) {
     _stallModelReplies = stall;
-    if (stall) return;
+    if (!stall) _releaseStalled();
+  }
+
+  /// While true, `tcpip:` requests (the switch to TCP mode) are counted but
+  /// not answered, like a phone whose adb transport is wedged. Setting it
+  /// back to false answers the requests that were held, as a late
+  /// completion would.
+  void stallTcpipReplies(bool stall) {
+    _stallTcpipReplies = stall;
+    if (!stall) _releaseStalled();
+  }
+
+  /// How many `tcpip:` requests the server has received.
+  int get tcpipRequests => _tcpipRequests;
+
+  void _releaseStalled() {
     final held = _stalled.values.toList();
     _stalled.clear();
     for (final reply in held) {
