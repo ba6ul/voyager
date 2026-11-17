@@ -25,18 +25,29 @@ class FakeAdbServer {
   }
 
   void _handle(Socket socket) async {
+    // A client can vanish mid-request (a daemon process killed at test
+    // teardown). On Linux that surfaces as ECONNRESET on this socket's reads
+    // and writes. Nothing awaits this handler, so an uncaught error would
+    // fail whichever test happens to be running; a fake has nothing to
+    // report about a client that went away.
+    socket.done.catchError((Object _) => socket);
     final buffer = <int>[];
-    await for (final chunk in socket) {
-      buffer.addAll(chunk);
-      while (true) {
-        if (buffer.length < 4) break;
-        final length = int.parse(ascii.decode(buffer.sublist(0, 4)), radix: 16);
-        if (buffer.length < 4 + length) break;
-        final service = ascii.decode(buffer.sublist(4, 4 + length));
-        buffer.removeRange(0, 4 + length);
-        final keepOpen = _dispatch(socket, service);
-        if (!keepOpen) return;
+    try {
+      await for (final chunk in socket) {
+        buffer.addAll(chunk);
+        while (true) {
+          if (buffer.length < 4) break;
+          final length =
+              int.parse(ascii.decode(buffer.sublist(0, 4)), radix: 16);
+          if (buffer.length < 4 + length) break;
+          final service = ascii.decode(buffer.sublist(4, 4 + length));
+          buffer.removeRange(0, 4 + length);
+          final keepOpen = _dispatch(socket, service);
+          if (!keepOpen) return;
+        }
       }
+    } on SocketException {
+      // The client went away; see above.
     }
   }
 

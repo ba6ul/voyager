@@ -280,15 +280,26 @@ void main() {
     });
 
     test('Go Wireless is still accepted for a USB phone', () async {
+      // The phone's Wi-Fi address is the listed network device, so Go
+      // Wireless can finish instead of retrying until the daemon is killed.
+      adb.setIpRoute('192.168.43.0/24 dev wlan0 proto kernel scope link '
+          'src 192.168.43.1\n');
       final d = await startWithAllKinds();
       final client = IpcClient();
       await client.connect(port: d.ipcPort);
       addTearDown(client.close);
+      final ended = client.events.firstWhere((e) =>
+          e.event == IpcEvents.wirelessStatus &&
+          e.data['serial'] == usbSerial &&
+          (e.data['stage'] == 'connected' || e.data['stage'] == 'failed'));
 
       final result =
           await client.send(IpcCommands.goWireless, {'serial': usbSerial});
 
       expect(result.data['started'], isTrue);
+      // Wait for the flow to end either way. Killing the daemon while it was
+      // still talking to the fake adb reset the fake's sockets on Linux.
+      await ended.timeout(const Duration(seconds: 30));
     });
 
     test('USB-only mode is refused for an emulator and for wireless debugging',

@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:scrcpy_core/scrcpy_core.dart';
 import 'package:test/test.dart';
@@ -72,6 +75,40 @@ void main() {
       throwsA(isA<AdbServerException>()),
     );
   });
+
+  test('a client that resets its connection mid-request fails no test',
+      () async {
+    // What a daemon killed at teardown looks like to the fake: the
+    // connection is reset (RST), not closed. SO_LINGER on with a 0 s timeout
+    // makes destroy() send RST. Before the fake caught this, the reset
+    // surfaced as an uncaught SocketException in whichever test was running.
+    final socket =
+        await Socket.connect(InternetAddress.loopbackIPv4, server.port);
+    socket.setRawOption(_lingerZero());
+    socket.add(ascii.encode('000chost:dev')); // a request cut short
+    await socket.flush();
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    socket.destroy();
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+
+    // The fake still serves the next client.
+    expect(await client.serverVersion(), '0029');
+  });
+}
+
+/// `SO_LINGER` = {on, 0 s}. `struct linger` is two u_shorts on Windows and
+/// two ints elsewhere; the option name is 0x0080 on Windows and macOS, 13 on
+/// Linux.
+RawSocketOption _lingerZero() {
+  final value = Platform.isWindows ? Uint8List(4) : Uint8List(8);
+  final data = ByteData.sublistView(value);
+  if (Platform.isWindows) {
+    data.setUint16(0, 1, Endian.host);
+  } else {
+    data.setInt32(0, 1, Endian.host);
+  }
+  final name = Platform.isLinux ? 13 : 0x0080;
+  return RawSocketOption(RawSocketOption.levelSocket, name, value);
 }
 
 Future<void> _eventually(bool Function() predicate) async {
