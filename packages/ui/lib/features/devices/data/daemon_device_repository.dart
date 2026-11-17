@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:scrcpy_ipc/scrcpy_ipc.dart';
 
 import '../../../core/ipc/ipc_connection.dart';
@@ -56,33 +58,52 @@ class DaemonDeviceRepository implements DeviceRepository {
           .map(cachedDeviceFromJson)
           .toList());
 
+  /// Sends [cmd] and turns every way it can fail into a
+  /// [DaemonCommandException]. Async on purpose: [IpcConnection.send] throws
+  /// synchronously when there is no connection, and that must be caught here
+  /// too, not escape to the caller.
+  Future<IpcResult> _send(String cmd, String serial) async {
+    try {
+      return await _connection.send(cmd, {'serial': serial});
+    } on IpcCommandFailed catch (e) {
+      throw DaemonCommandException(
+          DaemonCommandFailure.rejected, _firstLine(e.message));
+    } on TimeoutException {
+      throw const DaemonCommandException(DaemonCommandFailure.timedOut);
+    } on StateError {
+      // Not connected, or the connection dropped before the reply.
+      throw const DaemonCommandException(DaemonCommandFailure.disconnected);
+    }
+  }
+
+  /// The daemon's error text can be a multi-line exception (e.g. a
+  /// ProcessException with the full command); its first line says enough.
+  static String _firstLine(String text) => text.trim().split('\n').first.trim();
+
   @override
-  Future<bool> launch(String serial) async {
-    final result =
-        await _connection.send(IpcCommands.launch, {'serial': serial});
-    return result.data['launched'] as bool? ?? false;
+  Future<LaunchOutcome> launch(String serial) async {
+    final result = await _send(IpcCommands.launch, serial);
+    return result.data['alreadyRunning'] == true
+        ? LaunchOutcome.alreadyRunning
+        : LaunchOutcome.started;
   }
 
   @override
-  Future<void> stop(String serial) =>
-      _connection.send(IpcCommands.stop, {'serial': serial});
+  Future<void> stop(String serial) => _send(IpcCommands.stop, serial);
 
   @override
   Future<void> goWireless(String serial) =>
-      _connection.send(IpcCommands.goWireless, {'serial': serial});
+      _send(IpcCommands.goWireless, serial);
 
   @override
-  Future<void> handoff(String serial) =>
-      _connection.send(IpcCommands.handoff, {'serial': serial});
+  Future<void> handoff(String serial) => _send(IpcCommands.handoff, serial);
 
   @override
-  Future<void> usbMode(String serial) =>
-      _connection.send(IpcCommands.usbMode, {'serial': serial});
+  Future<void> usbMode(String serial) => _send(IpcCommands.usbMode, serial);
 
   @override
   Future<RetryResult> retryReconnect(String usbSerial) async {
-    final result = await _connection
-        .send(IpcCommands.retryReconnect, {'serial': usbSerial});
+    final result = await _send(IpcCommands.retryReconnect, usbSerial);
     final outcome = RetryOutcome.values.firstWhere(
       (o) => o.name == result.data['outcome'],
       orElse: () => RetryOutcome.requested,

@@ -40,20 +40,37 @@ class FakeDeviceRepository implements DeviceRepository {
   @override
   Stream<StatusEvent> get handoffStatus => handoffStatusController.stream;
 
-  @override
-  Future<bool> launch(String serial) async {
-    playedSerials.add(serial);
-    return true;
+  /// What the next launch returns, unless [commandError] is set.
+  LaunchOutcome launchOutcome = LaunchOutcome.started;
+
+  /// Thrown by launch, stop, goWireless and handoff when set, like the real
+  /// repository's DaemonCommandException.
+  Object? commandError;
+
+  /// When set, launch, stop, goWireless and handoff wait for it, so a test
+  /// can look at the in-flight state.
+  Completer<void>? commandGate;
+
+  Future<void> _command(List<String> calls, String serial) async {
+    calls.add(serial);
+    await commandGate?.future;
+    if (commandError != null) throw commandError!;
   }
 
   @override
-  Future<void> stop(String serial) async => stoppedSerials.add(serial);
+  Future<LaunchOutcome> launch(String serial) async {
+    await _command(playedSerials, serial);
+    return launchOutcome;
+  }
 
   @override
-  Future<void> goWireless(String serial) async => wirelessSerials.add(serial);
+  Future<void> stop(String serial) => _command(stoppedSerials, serial);
 
   @override
-  Future<void> handoff(String serial) async => handoffSerials.add(serial);
+  Future<void> goWireless(String serial) => _command(wirelessSerials, serial);
+
+  @override
+  Future<void> handoff(String serial) => _command(handoffSerials, serial);
 
   @override
   Future<void> usbMode(String serial) async {}

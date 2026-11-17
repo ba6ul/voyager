@@ -44,7 +44,7 @@ class DeviceListCubit extends Cubit<DeviceListState> {
     emit(state.copyWith(statusMessages: messages));
   }
 
-  Future<bool> play(String serial) => _repository.launch(serial);
+  Future<LaunchOutcome> play(String serial) => _repository.launch(serial);
   Future<void> stop(String serial) => _repository.stop(serial);
   Future<void> goWireless(String serial) => _repository.goWireless(serial);
   Future<void> handoff(String serial) => _repository.handoff(serial);

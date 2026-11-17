@@ -27,6 +27,49 @@ enum RetryOutcome {
   requested,
 }
 
+/// What the daemon did with a Play.
+enum LaunchOutcome {
+  /// A new scrcpy process was started.
+  started,
+
+  /// A mirror for the device was already running (or being started).
+  alreadyRunning,
+}
+
+/// Why a command to the daemon did not go through.
+enum DaemonCommandFailure {
+  /// The daemon answered that the command failed; [DaemonCommandException.detail]
+  /// says why.
+  rejected,
+
+  /// No answer within the IPC timeout.
+  timedOut,
+
+  /// Not connected to the daemon, or the connection dropped mid-command.
+  disconnected,
+}
+
+/// Thrown by every [DeviceRepository] command when the daemon could not carry
+/// it out. Its [toString] is a short, readable reason for the UI.
+class DaemonCommandException implements Exception {
+  const DaemonCommandException(this.failure, [this.detail]);
+
+  final DaemonCommandFailure failure;
+
+  /// The daemon's own error text, for [DaemonCommandFailure.rejected].
+  final String? detail;
+
+  @override
+  String toString() => switch (failure) {
+        DaemonCommandFailure.rejected =>
+          detail ?? 'the background service turned the request down',
+        DaemonCommandFailure.timedOut =>
+          'the background service did not answer in time',
+        DaemonCommandFailure.disconnected =>
+          'not connected to the background service',
+      };
+}
+
 class RetryResult {
   const RetryResult(this.outcome, {this.address});
 
@@ -39,6 +82,9 @@ class RetryResult {
 /// The UI's view of the daemon: a live device list plus the actions a user
 /// can take on a device. Implemented over the IPC protocol
 /// (daemon_device_repository.dart); the Cubit only ever depends on this.
+///
+/// Every command throws [DaemonCommandException] when the daemon cannot carry
+/// it out, never a transport-specific error.
 abstract class DeviceRepository {
   /// Starts (or resumes) talking to the daemon. Safe to call once; the
   /// underlying connection retries on its own if the daemon isn't up yet.
@@ -60,9 +106,15 @@ abstract class DeviceRepository {
   /// currently reachable.
   Stream<List<CachedDevice>> get knownDevices;
 
-  Future<bool> launch(String serial);
+  Future<LaunchOutcome> launch(String serial);
   Future<void> stop(String serial);
+
+  /// Asks the daemon to start Go Wireless. A request it turns away (another
+  /// operation is running, or the device is not on USB) is not an error: the
+  /// daemon reports the reason through [wirelessStatus].
   Future<void> goWireless(String serial);
+
+  /// Like [goWireless], reported through [handoffStatus].
   Future<void> handoff(String serial);
   Future<void> usbMode(String serial);
 
