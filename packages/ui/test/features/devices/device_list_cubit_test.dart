@@ -44,14 +44,79 @@ void main() {
     expect(cubit.state.devices, [device]);
   });
 
-  test('calls onDeviceReady when a device becomes ready', () async {
-    String? readySerial;
-    DeviceListCubit(repository, onDeviceReady: (serial) => readySerial = serial);
+  group('onDeviceReady (brings the window forward)', () {
+    late List<String> shown;
 
-    repository.deviceReadyController.add('ABC123');
-    await Future<void>.delayed(Duration.zero);
+    setUp(() => shown = []);
 
-    expect(readySerial, 'ABC123');
+    Future<void> ready(String serial) async {
+      repository.deviceReadyController.add(serial);
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    test('is called for a USB phone the first time it becomes ready',
+        () async {
+      DeviceListCubit(repository, onDeviceReady: shown.add);
+
+      await ready('ABC123');
+
+      expect(shown, ['ABC123']);
+    });
+
+    test('is not called again when the same USB serial becomes ready again',
+        () async {
+      DeviceListCubit(repository, onDeviceReady: shown.add);
+
+      await ready('ABC123');
+      await ready('ABC123');
+
+      expect(shown, ['ABC123']);
+    });
+
+    test('is not called for a wireless reconnect', () async {
+      DeviceListCubit(repository, onDeviceReady: shown.add);
+
+      await ready('192.168.43.1:5555');
+      await ready('192.168.43.1:5555');
+
+      expect(shown, isEmpty);
+    });
+
+    test('is not called for wireless debugging or an emulator', () async {
+      DeviceListCubit(repository, onDeviceReady: shown.add);
+
+      await ready('adb-65261XEA33U4D0-HvLNB1._adb-tls-connect._tcp');
+      await ready('emulator-5554');
+
+      expect(shown, isEmpty);
+    });
+
+    test('uses the transport the daemon reported when the device is listed',
+        () async {
+      DeviceListCubit(repository, onDeviceReady: shown.add);
+      // A serial that looks like USB but which the daemon says is wireless.
+      repository.devicesController.add(const [
+        Device(
+            serial: 'ODD',
+            state: DeviceState.device,
+            mirroring: false,
+            transport: DeviceTransport.network),
+      ]);
+      await Future<void>.delayed(Duration.zero);
+
+      await ready('ODD');
+
+      expect(shown, isEmpty);
+    });
+
+    test('a different USB phone still brings the window forward', () async {
+      DeviceListCubit(repository, onDeviceReady: shown.add);
+
+      await ready('ABC123');
+      await ready('DEF456');
+
+      expect(shown, ['ABC123', 'DEF456']);
+    });
   });
 
   test('records wireless and handoff progress as status messages', () async {

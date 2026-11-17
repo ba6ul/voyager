@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../domain/device_repository.dart';
+import '../../domain/entities/device.dart';
 import '../progress_text.dart';
 import 'device_list_state.dart';
 
@@ -33,9 +34,7 @@ class DeviceListCubit extends Cubit<DeviceListState> {
           },
         ));
       }),
-      _repository.deviceReadySerials.listen((serial) {
-        onDeviceReady?.call(serial);
-      }),
+      _repository.deviceReadySerials.listen(_onDeviceReady),
       _repository.wirelessStatus
           .listen((e) => _onStatus(ProgressKind.wireless, e)),
       _repository.handoffStatus
@@ -49,11 +48,28 @@ class DeviceListCubit extends Cubit<DeviceListState> {
 
   final DeviceRepository _repository;
 
-  /// Called with a device's serial the moment it becomes ready, so the app
-  /// can bring the popup window to front.
+  /// Called with a serial when a phone is newly plugged in over USB, so the
+  /// app can bring the popup window to front. Not called for wireless
+  /// reconnects, emulators, or a serial that already became ready earlier in
+  /// this session (a flapping cable): those are not something the user just
+  /// did, and must not take focus from what they are doing.
   final void Function(String serial)? onDeviceReady;
 
   late final List<StreamSubscription<void>> _subscriptions;
+
+  /// Serials that have become ready at least once in this session.
+  final Set<String> _seenReady = {};
+
+  void _onDeviceReady(String serial) {
+    // add() is false for a serial seen before.
+    if (!_seenReady.add(serial)) return;
+    // The device list may not have this serial yet; the serial's shape is the
+    // fallback Device.transport itself uses.
+    final listed = state.devices.where((d) => d.serial == serial);
+    final transport =
+        listed.isEmpty ? DeviceTransport.of(serial) : listed.first.transport;
+    if (transport == DeviceTransport.usb) onDeviceReady?.call(serial);
+  }
 
   void _onStatus(ProgressKind kind, StatusEvent event) {
     final messages = Map<String, ProgressLine>.from(state.statusMessages);
