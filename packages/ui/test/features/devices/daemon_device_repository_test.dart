@@ -42,6 +42,26 @@ void main() {
             .having((e) => e.detail, 'detail', detail),
       );
 
+  group('pair', () {
+    test('sends the address and code as the pair command', () async {
+      await repository.pair(address: '192.168.1.8:37123', code: '123456');
+
+      final (cmd, args) = connection.sent.single;
+      expect(cmd, IpcCommands.pair);
+      expect(args, {'address': '192.168.1.8:37123', 'code': '123456'});
+    });
+
+    test('a request the daemon rejects is a rejected failure', () async {
+      connection.asyncError = IpcCommandFailed(
+          IpcCommands.pair, 'the pairing code is 6 digits');
+
+      await expectLater(
+          repository.pair(address: '192.168.1.8:37123', code: '1'),
+          failsWith(DaemonCommandFailure.rejected,
+              detail: 'the pairing code is 6 digits'));
+    });
+  });
+
   group('launch', () {
     test('a started mirror is started', () async {
       connection.reply = {'launched': true, 'alreadyRunning': false};

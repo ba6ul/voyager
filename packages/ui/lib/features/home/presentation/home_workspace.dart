@@ -8,6 +8,7 @@ import '../../../core/widgets/retro_widgets.dart';
 import '../../devices/presentation/cubit/device_list_cubit.dart';
 import '../../devices/presentation/cubit/device_list_state.dart';
 import '../../devices/presentation/widgets/device_list.dart';
+import '../../pairing/presentation/widgets/pair_dialog.dart';
 import 'adb_console_panel.dart';
 import 'unit_status_panel.dart';
 
@@ -32,10 +33,23 @@ class HomeWorkspace extends StatelessWidget {
             child: PixelPanel(
               title: 'UNITS',
               padding: EdgeInsets.zero,
-              trailing: BlocBuilder<DeviceListCubit, DeviceListState>(
-                buildWhen: (a, b) => a.devices.length != b.devices.length,
-                builder: (context, state) =>
-                    PixelBadge('${state.devices.length}', inverse: true),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  PixelKey(
+                    glyph: PixelGlyph.wifi,
+                    label: 'PAIR',
+                    tooltip: 'Pair a phone with Wireless debugging',
+                    compact: true,
+                    onPressed: () => showPairDialog(context),
+                  ),
+                  const SizedBox(width: 8),
+                  BlocBuilder<DeviceListCubit, DeviceListState>(
+                    buildWhen: (a, b) => a.devices.length != b.devices.length,
+                    builder: (context, state) =>
+                        PixelBadge('${state.devices.length}', inverse: true),
+                  ),
+                ],
               ),
               child: DeviceList(daemonLauncher: daemonLauncher),
             ),
