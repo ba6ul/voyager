@@ -19,6 +19,11 @@ abstract final class IpcCommands {
   // args: {serial} (== cached usbSerial). Replies after one connect attempt
   // (at most ~5 s) with {outcome: reconnected|unreachable|skipped, address}.
   static const retryReconnect = 'retryReconnect';
+  // args: {address: "ip:port", code: "123456"} from the phone's Wireless
+  // debugging pairing dialog. Replies {started: true} at once, or fails with
+  // the reason if the address or code is malformed or a pairing is already
+  // running. Progress and the result arrive as pairingStatus events.
+  static const pair = 'pair';
   static const getConfig = 'getConfig';
   static const setConfig = 'setConfig'; // args: {config: {...}}
   static const quit = 'quit';
@@ -55,6 +60,13 @@ abstract final class IpcEvents {
   ///         connecting, launchingWireless,
   ///         closingUsb, complete (detail = network serial), failed (detail = reason)
   static const handoffStatus = 'handoffStatus';
+
+  /// Progress of a pairing. data: {stage, detail?}
+  /// Stages: pairing, searching (paired; looking for the connect port),
+  ///         connected (detail = serial), pairedOnly (paired, connect port not
+  ///         found), wrongCode, unreachable, failed (detail = reason).
+  /// The pairing code is never part of an event.
+  static const pairingStatus = 'pairingStatus';
 
   /// Free-form log line for the UI console. data: {message}
   static const log = 'log';
@@ -178,6 +190,10 @@ class IpcEvent {
         'stage': stage,
         if (detail != null) 'detail': detail,
       });
+
+  static IpcEvent pairingStatus(String stage, [String? detail]) => IpcEvent(
+      IpcEvents.pairingStatus,
+      {'stage': stage, if (detail != null) 'detail': detail});
 
   static IpcEvent log(String message) =>
       IpcEvent(IpcEvents.log, {'message': message});

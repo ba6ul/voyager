@@ -474,4 +474,53 @@ void main() {
       expect(d.savedWireless()[usbSerial]!['lastIp'], oldAddress);
     });
   });
+
+  group('pairing over IPC (#75)', () {
+    Future<IpcClient> connect(DaemonHarness d) async {
+      final client = IpcClient();
+      await client.connect(port: d.ipcPort);
+      addTearDown(client.close);
+      return client;
+    }
+
+    test('a malformed address or code is rejected before adb is asked',
+        () async {
+      final d = await startDaemon();
+      final client = await connect(d);
+
+      for (final args in [
+        {'address': 'nope', 'code': '123456'},
+        {'address': '192.168.1.8:37123', 'code': '12'},
+        {'address': 5, 'code': '123456'},
+        {'code': '123456'},
+      ]) {
+        await expectLater(
+            client.send(IpcCommands.pair, args), throwsA(isA<IpcCommandFailed>()));
+      }
+      expect(adb.pairRequests, isEmpty);
+      expect(d.isAlive, isTrue);
+    });
+
+    test('a rejected code is reported as a status and never logged', () async {
+      adb.setPairReply('Failed: Wrong password or connection was dropped.');
+      final d = await startDaemon();
+      final client = await connect(d);
+      final stages = <String>[];
+      client.events.listen((e) {
+        if (e.event == IpcEvents.pairingStatus) {
+          stages.add(e.data['stage'] as String);
+        }
+      });
+
+      final reply = await client.send(IpcCommands.pair,
+          {'address': '192.168.1.8:37123', 'code': '654321'});
+      expect(reply.data['started'], isTrue);
+      await d.waitForLog('[p] wrongCode');
+
+      expect(stages, contains('wrongCode'));
+      expect(adb.pairRequests.single.code, '654321');
+      expect(d.log.where((l) => l.contains('654321')), isEmpty,
+          reason: 'the pairing code must not be logged');
+    });
+  });
 }
