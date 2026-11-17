@@ -18,6 +18,7 @@ class FakeDeviceRepository implements DeviceRepository {
   final List<String> stoppedSerials = [];
   final List<String> wirelessSerials = [];
   final List<String> handoffSerials = [];
+  final List<String> usbModeSerials = [];
   final List<String> retryReconnectSerials = [];
   bool connectCalled = false;
   bool disposed = false;
@@ -73,7 +74,7 @@ class FakeDeviceRepository implements DeviceRepository {
   Future<void> handoff(String serial) => _command(handoffSerials, serial);
 
   @override
-  Future<void> usbMode(String serial) async {}
+  Future<void> usbMode(String serial) => _command(usbModeSerials, serial);
 
   @override
   Stream<List<CachedDevice>> get knownDevices => knownDevicesController.stream;

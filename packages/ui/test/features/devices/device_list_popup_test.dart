@@ -260,6 +260,44 @@ void main() {
       expect(find.text('Handoff'), findsOneWidget);
     });
 
+    testWidgets('only an ip:port address is offered Disconnect',
+        (tester) async {
+      await showPopup(tester);
+
+      repository.devicesController.add([usb, mdns, emulator]);
+      await tester.pump();
+      expect(find.text('Disconnect'), findsNothing);
+
+      repository.devicesController.add([usb, mdns, emulator, network]);
+      await tester.pump();
+      expect(find.text('Disconnect'), findsOneWidget);
+    });
+
+    testWidgets('Disconnect sends usbMode for the ip:port address',
+        (tester) async {
+      await showPopup(tester);
+      repository.devicesController.add([network]);
+      await tester.pump();
+
+      await tester.tap(find.text('Disconnect'));
+      await tester.pump();
+
+      expect(repository.usbModeSerials, [network.serial]);
+    });
+
+    testWidgets('a failed Disconnect is shown on the row', (tester) async {
+      await showPopup(tester);
+      repository.devicesController.add([network]);
+      await tester.pump();
+      repository.commandError =
+          const DaemonCommandException(DaemonCommandFailure.timedOut);
+
+      await tester.tap(find.text('Disconnect'));
+      await tester.pump();
+
+      expect(find.textContaining('Could not disconnect'), findsOneWidget);
+    });
+
     testWidgets('wireless debugging, an emulator and an ip:port address are '
         'not offered either, and say what they are', (tester) async {
       // Regression for #28: the wireless-debugging phone and the emulator both

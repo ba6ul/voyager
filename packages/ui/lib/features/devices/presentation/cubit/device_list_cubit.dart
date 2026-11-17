@@ -116,6 +116,16 @@ class DeviceListCubit extends Cubit<DeviceListState> {
         return null;
       });
 
+  /// Drops a phone that was connected over the network (`adb disconnect`).
+  /// The daemon refuses it for anything but USB and network devices; the row
+  /// only offers it for a network one. The row leaves the list when adb
+  /// reports the device gone.
+  Future<void> disconnect(String serial) =>
+      _runAction(serial, DeviceAction.disconnect, () async {
+        await _repository.usbMode(serial);
+        return null;
+      });
+
   /// Runs [command] for [serial] unless an action for it is already in
   /// flight. [command] returns a message for the row, or null when the
   /// result needs no words.
@@ -143,6 +153,7 @@ class DeviceListCubit extends Cubit<DeviceListState> {
         DeviceAction.stop => 'Could not stop mirroring',
         DeviceAction.goWireless => 'Could not start Go Wireless',
         DeviceAction.handoff => 'Could not start the handoff',
+        DeviceAction.disconnect => 'Could not disconnect',
       };
 
   /// Sets or (with null) clears the action status of [serial]. A finished

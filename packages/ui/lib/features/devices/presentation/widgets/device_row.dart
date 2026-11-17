@@ -13,6 +13,7 @@ class DeviceRow extends StatelessWidget {
     required this.onStop,
     required this.onGoWireless,
     required this.onHandoff,
+    required this.onDisconnect,
     this.action,
   });
 
@@ -22,6 +23,7 @@ class DeviceRow extends StatelessWidget {
   final VoidCallback onStop;
   final VoidCallback onGoWireless;
   final VoidCallback onHandoff;
+  final VoidCallback onDisconnect;
 
   /// The last action sent for this device: while it is in flight the buttons
   /// are disabled; once finished, its message (if any) is shown.
@@ -106,6 +108,13 @@ class DeviceRow extends StatelessWidget {
                 OutlinedButton(
                     onPressed: unlessBusy(onHandoff),
                     child: const Text('Handoff')),
+              // Only for an address added with `adb connect`; wireless
+              // debugging and emulators are not the app's to disconnect.
+              // Offered in any state, so a stuck "offline" entry can be dropped.
+              if (device.transport == DeviceTransport.network)
+                OutlinedButton(
+                    onPressed: unlessBusy(onDisconnect),
+                    child: const Text('Disconnect')),
             ],
           ),
         ],
