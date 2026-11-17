@@ -166,7 +166,8 @@ void main() {
       await flush();
 
       expect(cubit.state.actions, isEmpty);
-      expect(cubit.state.statusMessages[_serial], contains('connecting'));
+      expect(cubit.state.statusMessages[_serial]?.text,
+          startsWith('Go Wireless:'));
     });
 
     test('when the device leaves the list', () async {

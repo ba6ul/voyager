@@ -60,7 +60,11 @@ void main() {
     repository.wirelessStatusController
         .add(const StatusEvent(serial: 'ABC123', stage: 'connecting'));
     await Future<void>.delayed(Duration.zero);
-    expect(cubit.state.statusMessages['ABC123'], contains('connecting'));
+    // Plain sentences, not stage names; progress_text_test.dart covers the
+    // wording of every stage.
+    expect(cubit.state.statusMessages['ABC123']?.text,
+        startsWith('Go Wireless:'));
+    expect(cubit.state.statusMessages['ABC123']?.finished, isFalse);
 
     repository.handoffStatusController.add(const StatusEvent(
       serial: 'ABC123',
@@ -68,8 +72,9 @@ void main() {
       detail: '1.2.3.4:5555',
     ));
     await Future<void>.delayed(Duration.zero);
-    expect(cubit.state.statusMessages['ABC123'], contains('complete'));
-    expect(cubit.state.statusMessages['ABC123'], contains('1.2.3.4:5555'));
+    expect(cubit.state.statusMessages['ABC123']?.text,
+        contains('mirroring wirelessly at 1.2.3.4:5555'));
+    expect(cubit.state.statusMessages['ABC123']?.finished, isTrue);
   });
 
   test('play/stop/goWireless/handoff delegate to the repository', () async {

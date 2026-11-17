@@ -49,7 +49,8 @@ class DeviceListPopup extends StatelessWidget {
                     if (i > 0) const Divider(height: 1),
                     DeviceRow(
                       device: state.devices[i],
-                      statusMessage: state.statusMessages[state.devices[i].serial],
+                      statusMessage:
+                          state.statusMessages[state.devices[i].serial]?.text,
                       action: state.actions[state.devices[i].serial],
                       onPlay: () => cubit.play(state.devices[i].serial),
                       onStop: () => cubit.stop(state.devices[i].serial),
