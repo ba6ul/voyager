@@ -69,6 +69,15 @@ void main() {
     expect(AdbClient.connectSucceeded(message), isTrue);
   });
 
+  test('serialNumber reads ro.serialno over the transport', () async {
+    expect(await client.serialNumber('FAKESERIAL'), 'FAKESERIAL');
+  });
+
+  test('serialNumber is null when the device reports none', () async {
+    server.setSerialNumber('');
+    expect(await client.serialNumber('FAKESERIAL'), isNull);
+  });
+
   test('FAIL responses surface as AdbServerException', () async {
     expect(
       () => client.shell('NOPE', 'id'),
