@@ -38,7 +38,14 @@ void main() {
     DeviceAction.stop: (c) => c.stop(_serial),
     DeviceAction.goWireless: (c) => c.goWireless(_serial),
     DeviceAction.handoff: (c) => c.handoff(_serial),
+    DeviceAction.disconnect: (c) => c.disconnect(_serial),
   };
+
+  test('disconnect sends usbMode for that serial', () async {
+    await cubit.disconnect(_serial);
+
+    expect(repository.usbModeSerials, [_serial]);
+  });
 
   group('in flight', () {
     actions.forEach((action, run) {
@@ -113,6 +120,7 @@ void main() {
       DeviceAction.stop: 'Could not stop mirroring',
       DeviceAction.goWireless: 'Could not start Go Wireless',
       DeviceAction.handoff: 'Could not start the handoff',
+      DeviceAction.disconnect: 'Could not disconnect',
     };
     actions.forEach((action, run) {
       test('${action.name} that fails says why, and does not throw',

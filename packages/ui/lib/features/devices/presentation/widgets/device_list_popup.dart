@@ -55,6 +55,8 @@ class DeviceListPopup extends StatelessWidget {
                       onStop: () => cubit.stop(state.devices[i].serial),
                       onGoWireless: () => cubit.goWireless(state.devices[i].serial),
                       onHandoff: () => cubit.handoff(state.devices[i].serial),
+                      onDisconnect: () =>
+                          cubit.disconnect(state.devices[i].serial),
                     ),
                   ],
                 ],

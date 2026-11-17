@@ -22,7 +22,7 @@ class RetryStatus extends Equatable {
 }
 
 /// A command a user can send for a listed device.
-enum DeviceAction { play, stop, goWireless, handoff }
+enum DeviceAction { play, stop, goWireless, handoff, disconnect }
 
 /// The last [DeviceAction] sent for one device: in flight, or what came of
 /// it when that is worth telling the user. A command that simply worked
