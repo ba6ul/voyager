@@ -142,8 +142,86 @@ void main() {
       repository.connectedController.add(false);
       await tester.pump();
 
-      expect(find.text('Daemon not running'), findsOneWidget);
       expect(find.text('Voyager'), findsOneWidget);
+    });
+  });
+
+  group('state guidance', () {
+    testWidgets('the connecting state says what it is waiting for',
+        (tester) async {
+      repository = FakeDeviceRepository();
+      cubit = DeviceListCubit(repository);
+      addTearDown(cubit.close);
+      await tester.pumpWidget(MaterialApp(
+        home: BlocProvider.value(value: cubit, child: const DeviceListPopup()),
+      ));
+
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.textContaining('background service'), findsOneWidget);
+    });
+
+    testWidgets('the unreachable state explains the problem and a next step',
+        (tester) async {
+      await showPopup(tester);
+      repository.connectedController.add(false);
+      await tester.pump();
+
+      expect(find.text('Voyager\'s background service is not running'),
+          findsOneWidget);
+      expect(find.textContaining('open it again'), findsOneWidget);
+      expect(find.textContaining('Daemon'), findsNothing);
+    });
+
+    testWidgets('the empty state says how to connect a phone', (tester) async {
+      await showPopup(tester);
+
+      expect(find.text('No phone connected'), findsOneWidget);
+      expect(find.textContaining('USB debugging'), findsOneWidget);
+      expect(find.textContaining('USB cable'), findsOneWidget);
+    });
+
+    Future<void> showDeviceIn(WidgetTester tester, DeviceState state) async {
+      await showPopup(tester);
+      repository.devicesController.add([
+        Device(
+            serial: '65261XEA33U4D0',
+            state: state,
+            model: 'Pixel 10a',
+            mirroring: false),
+      ]);
+      await tester.pump();
+    }
+
+    testWidgets('unauthorized asks the user to accept the prompt on the phone',
+        (tester) async {
+      await showDeviceIn(tester, DeviceState.unauthorized);
+
+      expect(find.text('Waiting for permission'), findsOneWidget);
+      expect(find.textContaining('tap Allow'), findsOneWidget);
+      expect(find.text('unauthorized'), findsNothing);
+      expect(find.text('Play'), findsNothing);
+    });
+
+    for (final entry in {
+      DeviceState.offline: 'Not responding',
+      DeviceState.recovery: 'In recovery mode',
+      DeviceState.bootloader: 'In bootloader mode',
+      DeviceState.unknown: 'Not ready',
+    }.entries) {
+      testWidgets('${entry.key.name} reads as words, not the enum name',
+          (tester) async {
+        await showDeviceIn(tester, entry.key);
+
+        expect(find.text(entry.value), findsOneWidget);
+        expect(find.text(entry.key.name), findsNothing);
+      });
+    }
+
+    testWidgets('a ready device shows no state text', (tester) async {
+      await showDeviceIn(tester, DeviceState.device);
+
+      expect(find.text('Ready'), findsNothing);
+      expect(find.text('Play'), findsOneWidget);
     });
   });
 
