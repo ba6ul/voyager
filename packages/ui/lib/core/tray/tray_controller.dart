@@ -15,6 +15,8 @@ class AppTrayController with TrayListener {
     ]));
   }
 
+  Future<void> setToolTip(String text) => trayManager.setToolTip(text);
+
   @override
   void onTrayIconMouseDown() {
     _showWindow();
