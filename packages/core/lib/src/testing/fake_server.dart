@@ -83,7 +83,10 @@ class FakeAdbServer {
     }
     if (service.startsWith('host:transport:')) {
       final serial = service.substring('host:transport:'.length);
-      if (serial != 'FAKESERIAL') {
+      final listed = _devicesPayload
+          .split('\n')
+          .any((line) => line.split('\t').first == serial);
+      if (serial != 'FAKESERIAL' && !listed) {
         socket.add(ascii.encode('FAIL'));
         _hexPayload(socket, 'device \'$serial\' not found');
         _end(socket);
