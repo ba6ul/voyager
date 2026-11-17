@@ -87,6 +87,79 @@ abstract final class AdbProtocol {
   }
 }
 
+/// What `host:pair` answered, in terms a user can act on.
+enum PairOutcome {
+  /// The phone accepted the code; it is now paired with this PC.
+  paired,
+
+  /// The phone answered but rejected the code (wrong, or the pairing dialog
+  /// on the phone was closed or timed out).
+  wrongCode,
+
+  /// Nothing answered at the pairing address.
+  unreachable,
+
+  /// Any other refusal; [PairResult.message] carries adb's own text.
+  failed,
+}
+
+class PairResult {
+  const PairResult(this.outcome, this.message, {this.guid});
+
+  final PairOutcome outcome;
+
+  /// adb's reply, never containing the pairing code.
+  final String message;
+
+  /// The `adb-<serial>-<suffix>` name of the paired phone, when adb says it.
+  final String? guid;
+}
+
+/// Parsing and validation for `adb pair` (`host:pair:<code>:<host:port>`).
+abstract final class AdbPairing {
+  static final _address = RegExp(r'^(\d{1,3})(\.\d{1,3}){3}:(\d{1,5})$');
+  static final _code = RegExp(r'^\d{6}$');
+
+  /// True for an IPv4 `ip:port` with each octet 0-255 and a port 1-65535: the
+  /// pairing address the phone shows. Anything else is refused before a
+  /// request is built, so text cannot be injected into the service string.
+  static bool isValidAddress(String value) {
+    if (!_address.hasMatch(value)) return false;
+    final colon = value.lastIndexOf(':');
+    final port = int.parse(value.substring(colon + 1));
+    if (port < 1 || port > 65535) return false;
+    return value
+        .substring(0, colon)
+        .split('.')
+        .every((octet) => int.parse(octet) <= 255);
+  }
+
+  /// True for the 6-digit pairing code.
+  static bool isValidCode(String value) => _code.hasMatch(value);
+
+  /// Classifies the text adb replies to `host:pair`, e.g.
+  /// `Successfully paired to 192.168.1.8:37123 [guid=adb-XXXX-YYYY]` or
+  /// `Failed: Wrong password or connection was dropped.`
+  static PairResult parseResponse(String reply) {
+    final text = reply.trim();
+    final lower = text.toLowerCase();
+    final guid = RegExp(r'guid=([^\]\s]+)').firstMatch(text)?.group(1);
+    if (lower.startsWith('successfully paired')) {
+      return PairResult(PairOutcome.paired, text, guid: guid);
+    }
+    if (lower.contains('password') || lower.contains('wrong code')) {
+      return PairResult(PairOutcome.wrongCode, text);
+    }
+    if (lower.contains('unable to start') ||
+        lower.contains('unable to connect') ||
+        lower.contains('connection refused') ||
+        lower.contains('timed out')) {
+      return PairResult(PairOutcome.unreachable, text);
+    }
+    return PairResult(PairOutcome.failed, text.isEmpty ? 'no reply' : text);
+  }
+}
+
 class AdbProtocolException implements Exception {
   const AdbProtocolException(this.message);
   final String message;

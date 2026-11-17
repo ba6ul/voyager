@@ -78,6 +78,56 @@ void main() {
     expect(await client.serialNumber('FAKESERIAL'), isNull);
   });
 
+  group('pair', () {
+    test('a good code and address pairs the phone', () async {
+      final result = await client.pair('192.168.1.8:37123', '123456');
+
+      expect(result.outcome, PairOutcome.paired);
+      expect(result.guid, 'adb-FAKESERIAL-abc123');
+      expect(server.pairRequests.single.address, '192.168.1.8:37123');
+      expect(server.pairRequests.single.code, '123456');
+    });
+
+    test('a rejected code is reported as a wrong code', () async {
+      server.setPairReply('Failed: Wrong password or connection was dropped.');
+      final result = await client.pair('192.168.1.8:37123', '000000');
+
+      expect(result.outcome, PairOutcome.wrongCode);
+      expect(result.message, isNot(contains('000000')));
+    });
+
+    test('an address nothing answers at is reported as unreachable', () async {
+      server.setPairReply('Failed: Unable to start pairing client.');
+      final result = await client.pair('192.168.1.8:37123', '123456');
+
+      expect(result.outcome, PairOutcome.unreachable);
+    });
+
+    test('a phone that never answers times out as unreachable', () async {
+      server.stallPairReplies(true);
+      final result = await client.pair('192.168.1.8:37123', '123456',
+          timeout: const Duration(milliseconds: 100));
+
+      expect(result.outcome, PairOutcome.unreachable);
+      server.stallPairReplies(false);
+    });
+
+    test('a bad address or code is refused before anything is sent', () async {
+      for (final address in ['', 'host:1', '1.2.3:4', '300.1.1.1:5',
+          '1.1.1.1:0', '1.1.1.1:70000', '1.1.1.1:5:7', '1.1.1.1:5 x']) {
+        expect(() => client.pair(address, '123456'),
+            throwsA(isA<ArgumentError>()),
+            reason: address);
+      }
+      for (final code in ['', '12345', '1234567', 'abcdef', '12 456', '123:56']) {
+        expect(() => client.pair('192.168.1.8:37123', code),
+            throwsA(isA<ArgumentError>()),
+            reason: code);
+      }
+      expect(server.pairRequests, isEmpty);
+    });
+  });
+
   test('FAIL responses surface as AdbServerException', () async {
     expect(
       () => client.shell('NOPE', 'id'),

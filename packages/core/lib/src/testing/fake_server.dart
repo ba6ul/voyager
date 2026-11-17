@@ -15,6 +15,8 @@ class FakeAdbServer {
   String _ipRouteOutput =
       '192.168.1.0/24 dev wlan0 proto kernel scope link src 192.168.1.42\n';
   String _serialNumber = 'FAKESERIAL';
+  String? _pairReply;
+  bool _stallPairReplies = false;
 
   int get port => _server.port;
 
@@ -78,6 +80,25 @@ class FakeAdbServer {
     if (service.startsWith('host:connect:')) {
       final address = service.substring('host:connect:'.length);
       _okayWithPayload(socket, 'connected to $address');
+      _end(socket);
+      return false;
+    }
+    if (service.startsWith('host:pair:')) {
+      // host:pair:<code>:<ip:port>
+      final rest = service.substring('host:pair:'.length);
+      final colon = rest.indexOf(':');
+      pairRequests.add((code: rest.substring(0, colon), address: rest.substring(colon + 1)));
+      final reply = _pairReply ??
+          'Successfully paired to ${rest.substring(colon + 1)} '
+              '[guid=adb-FAKESERIAL-abc123]';
+      if (_stallPairReplies) {
+        _stalled[socket] = () {
+          _okayWithPayload(socket, reply);
+          _end(socket);
+        };
+        return true;
+      }
+      _okayWithPayload(socket, reply);
       _end(socket);
       return false;
     }
@@ -174,6 +195,19 @@ class FakeAdbServer {
   /// Sets what `shell:ip route` returns from now on. An empty string models a
   /// phone with no WiFi address (WiFi off, or the phone is the hotspot).
   void setIpRoute(String output) => _ipRouteOutput = output;
+
+  /// What `host:pair` answers from now on (null = a success message).
+  void setPairReply(String? reply) => _pairReply = reply;
+
+  /// While true, `host:pair` requests are counted but not answered, like a
+  /// phone whose pairing dialog is closed.
+  void stallPairReplies(bool stall) {
+    _stallPairReplies = stall;
+    if (!stall) _releaseStalled();
+  }
+
+  /// Every `host:pair` the server has received, oldest first.
+  final pairRequests = <({String code, String address})>[];
 
   /// Sets what `shell:getprop ro.serialno` returns from now on (default
   /// `FAKESERIAL`). An empty string models a device that reports none.
