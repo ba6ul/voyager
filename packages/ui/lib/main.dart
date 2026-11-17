@@ -2,21 +2,24 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'app/voyager_shell.dart';
 import 'core/ipc/ipc_connection.dart';
+import 'core/theme/retro_theme.dart';
+import 'core/theme/theme_controller.dart';
 import 'core/tray/tray_controller.dart';
 import 'features/devices/data/daemon_device_repository.dart';
 import 'features/devices/presentation/cubit/device_list_cubit.dart';
 import 'features/devices/presentation/cubit/device_list_state.dart';
 import 'features/devices/presentation/tray_tooltip.dart';
-import 'features/devices/presentation/widgets/device_list_popup.dart';
 import 'features/devices/presentation/widgets/hide_on_escape.dart';
 
-// Small enough to be a tray window, large enough for the busiest row (Stop,
-// Go Wireless and Handoff wrap onto two lines at this width); see
-// device_row_fit_test.dart, which renders it at exactly this size.
+/// The smallest window the shell is laid out for; voyager_shell_test.dart
+/// renders every workspace at exactly this size.
+const minWindowSize = Size(760, 520);
+
 const _windowOptions = WindowOptions(
-  size: Size(360, 480),
-  minimumSize: Size(320, 300),
+  size: Size(980, 640),
+  minimumSize: minWindowSize,
   center: true,
   skipTaskbar: true,
   title: 'Voyager',
@@ -73,23 +76,50 @@ class _HideInsteadOfCloseListener extends WindowListener {
   }
 }
 
-class VoyagerApp extends StatelessWidget {
-  const VoyagerApp({super.key, required this.cubit, required this.onHide});
+class VoyagerApp extends StatefulWidget {
+  const VoyagerApp({
+    super.key,
+    required this.cubit,
+    required this.onHide,
+    this.theme,
+  });
 
   final DeviceListCubit cubit;
 
   /// Puts the window away (Esc); the app keeps running in the tray.
   final VoidCallback onHide;
 
+  /// Palette and scanline switches; a fresh one if not given.
+  final ThemeController? theme;
+
+  @override
+  State<VoyagerApp> createState() => _VoyagerAppState();
+}
+
+class _VoyagerAppState extends State<VoyagerApp> {
+  late final ThemeController _theme = widget.theme ?? ThemeController();
+
+  @override
+  void dispose() {
+    if (widget.theme == null) _theme.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return BlocProvider.value(
-      value: cubit,
-      child: MaterialApp(
-        title: 'Voyager',
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.indigo),
-        home: HideOnEscape(onHide: onHide, child: const DeviceListPopup()),
+      value: widget.cubit,
+      child: ListenableBuilder(
+        listenable: _theme,
+        builder: (context, _) => MaterialApp(
+          title: 'Voyager',
+          debugShowCheckedModeBanner: false,
+          theme: buildRetroTheme(_theme.palette),
+          home: HideOnEscape(
+            onHide: widget.onHide,
+            child: VoyagerShell(theme: _theme),
+          ),
+        ),
       ),
     );
   }

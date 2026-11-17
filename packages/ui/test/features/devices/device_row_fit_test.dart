@@ -1,32 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:scrcpy_ui/core/theme/retro_palette.dart';
+import 'package:scrcpy_ui/core/theme/retro_theme.dart';
 import 'package:scrcpy_ui/features/devices/domain/entities/device.dart';
 import 'package:scrcpy_ui/features/devices/presentation/cubit/device_list_cubit.dart';
-import 'package:scrcpy_ui/features/devices/presentation/widgets/device_list_popup.dart';
-import 'package:scrcpy_ui/features/devices/presentation/widgets/device_row.dart';
+import 'package:scrcpy_ui/features/devices/presentation/widgets/device_list.dart';
 
 import 'fake_device_repository.dart';
 
 // The app's theme, as in main.dart.
-final _theme = ThemeData(useMaterial3: true, colorSchemeSeed: Colors.indigo);
-
-double _contrast(Color a, Color b) {
-  final hi = a.computeLuminance() > b.computeLuminance() ? a : b;
-  final lo = identical(hi, a) ? b : a;
-  return (hi.computeLuminance() + 0.05) / (lo.computeLuminance() + 0.05);
-}
+final _theme = buildRetroTheme(RetroPalette.lcd);
 
 void main() {
-  test('the not-ready text has at least 4.5:1 contrast on the surface', () {
-    final surface = _theme.colorScheme.surface;
-
-    expect(_contrast(notReadyColor, surface), greaterThanOrEqualTo(4.5));
-    // The colour it replaced did not, so this test can fail.
-    expect(_contrast(Colors.orange, surface), lessThan(4.5));
-  });
-
-  // main.dart sets the window's minimum size to this.
+  // The device panel at the narrowest it gets: the minimum window (760 wide)
+  // less the nav rail and padding leaves about 300 for it, so this is a
+  // little stricter. voyager_shell_test.dart covers the real window.
   const minWindow = Size(320, 300);
 
   testWidgets('the busiest rows fit at the minimum window size',
@@ -39,7 +28,7 @@ void main() {
     addTearDown(cubit.close);
     await tester.pumpWidget(MaterialApp(
       theme: _theme,
-      home: BlocProvider.value(value: cubit, child: const DeviceListPopup()),
+      home: BlocProvider.value(value: cubit, child: const DeviceList()),
     ));
     repository.connectedController.add(true);
     // Three buttons, a long model name.

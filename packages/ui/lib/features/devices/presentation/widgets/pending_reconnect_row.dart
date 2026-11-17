@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/retro_theme.dart';
+import '../../../../core/widgets/pixel_border.dart';
+import '../../../../core/widgets/pixel_icon.dart';
 import '../../domain/entities/cached_device.dart';
 import '../cubit/device_list_state.dart';
 
@@ -22,41 +25,62 @@ class PendingReconnectRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.retro;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(device.model, style: Theme.of(context).textTheme.titleMedium),
-                Text(
-                  status?.message ?? 'previously connected – reconnecting…',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-            ),
-          ),
-          if (status?.inProgress ?? false)
-            const OutlinedButton(
-              onPressed: null,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                  SizedBox(width: 8),
-                  Text('Trying…'),
-                ],
+      padding: const EdgeInsets.only(bottom: 10, right: 3),
+      child: DecoratedBox(
+        // Dim outline: the phone is remembered, not present.
+        decoration: ShapeDecoration(
+          color: p.panel,
+          shape: PixelBorder(side: BorderSide(color: p.inkDim, width: 2)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Row(
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: PixelIcon(PixelGlyph.wifi, size: 24, color: p.inkDim),
               ),
-            )
-          else
-            OutlinedButton(onPressed: onTryNow, child: const Text('Try Now')),
-        ],
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      device.model,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    Text(
+                      status?.message ?? 'previously connected – reconnecting…',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              if (status?.inProgress ?? false)
+                const OutlinedButton(
+                  onPressed: null,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 8),
+                      Text('Trying…'),
+                    ],
+                  ),
+                )
+              else
+                OutlinedButton(
+                  onPressed: onTryNow,
+                  child: const Text('Try Now'),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
