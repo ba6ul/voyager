@@ -43,11 +43,13 @@ Future<void> _run(List<String> args) async {
   final client = AdbClient(adbPath: adbPath);
   late final IpcServer ipc;
   late final Timer reconnectTimer;
-  // Assigned once deviceJson/known exist below; closing a scrcpy window
-  // (its own X button, a crash) doesn't change adb's connection state, so
-  // the track-devices loop never re-broadcasts on its own. Without this,
-  // the UI's cached `mirroring` flag goes stale: it keeps showing "Stop"
-  // for a device that already stopped mirroring.
+  // Assigned once deviceJson/known exist below. Opening or closing a scrcpy
+  // window doesn't change adb's connection state, so the track-devices loop
+  // never re-broadcasts on its own; the launcher's callbacks do. Without
+  // them the UI's `mirroring` flag goes stale: "Play" for a phone that is
+  // already mirroring (#56), or "Stop" for one that stopped (#2). Every
+  // launch path (IPC launch, auto-launch, handoff, the p key) goes through
+  // the launcher, so they are all covered here.
   late final void Function() broadcastDevices;
   final launcher = ScrcpyLauncher(
     scrcpyPath: config.scrcpyPath,
@@ -56,6 +58,9 @@ Future<void> _run(List<String> args) async {
       ipc.broadcast(IpcEvent.scrcpyExited(serial, code));
       broadcastDevices();
     },
+    onStarted: (_) => broadcastDevices(),
+    // A snapshot sent while the start was pending said "mirroring".
+    onStartFailed: (_) => broadcastDevices(),
   );
   final wireless = WirelessManager(client);
   var knownWireless = await KnownDevicesStore.load();

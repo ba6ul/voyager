@@ -33,11 +33,13 @@ void main() {
     bool autoLaunch = false,
     String? adbPath,
     int? adbPort,
+    String? scrcpyPath,
   }) async {
     final d = await DaemonHarness.start(
       adbPort: adbPort ?? adb.port,
       autoLaunch: autoLaunch,
       adbPath: adbPath,
+      scrcpyPath: scrcpyPath,
     );
     daemon = d;
     return d;
@@ -117,6 +119,99 @@ void main() {
 
     expect(d.isAlive, isTrue);
     expect(await d.listDevices(), isEmpty);
+  });
+
+  // #56: the UI's Play/Stop follows `mirroring` in the devices snapshot, so
+  // every change of it must be followed by a snapshot, launches included.
+  group('mirroring state in the devices snapshot', () {
+    // Stands in for scrcpy: accepts scrcpy's arguments and stays up until it
+    // is killed (both read commands from stdin, which the daemon keeps open).
+    final idleScrcpy = Platform.isWindows ? 'cmd.exe' : '/bin/sh';
+
+    Future<void> waitFor(bool Function() condition, String what) async {
+      final deadline = DateTime.now().add(const Duration(seconds: 20));
+      while (!condition()) {
+        if (DateTime.now().isAfter(deadline)) fail('$what not seen in 20 s');
+        await Future<void>.delayed(const Duration(milliseconds: 25));
+      }
+    }
+
+    /// `mirroring` for FAKESERIAL in each devices snapshot received, in order.
+    Future<(IpcClient, List<bool>)> watch(DaemonHarness d) async {
+      await d.waitForLog('ipc: listening');
+      final client = IpcClient();
+      await client.connect(port: d.ipcPort);
+      addTearDown(client.close);
+      final mirroring = <bool>[];
+      client.events
+          .where((e) => e.event == IpcEvents.devices)
+          .listen((e) {
+        for (final device in (e.data['devices'] as List)
+            .cast<Map<String, dynamic>>()) {
+          if (device['serial'] == 'FAKESERIAL') {
+            mirroring.add(device['mirroring'] as bool);
+          }
+        }
+      });
+      return (client, mirroring);
+    }
+
+    test('a launch over IPC is published, and so is the stop', () async {
+      final d = await startDaemon(scrcpyPath: idleScrcpy);
+      await d.waitForLog('[+] Pixel 7');
+      final (client, mirroring) = await watch(d);
+      await waitFor(() => mirroring.isNotEmpty, 'the catch-up snapshot');
+      expect(mirroring, [false]);
+
+      final launch =
+          await client.send(IpcCommands.launch, {'serial': 'FAKESERIAL'});
+      expect(launch.data['launched'], isTrue);
+      await waitFor(() => mirroring.last, 'a snapshot with mirroring: true');
+
+      // A second Play is not a new state, so it sends nothing new.
+      final count = mirroring.length;
+      final again =
+          await client.send(IpcCommands.launch, {'serial': 'FAKESERIAL'});
+      expect(again.data['alreadyRunning'], isTrue);
+
+      await client.send(IpcCommands.stop, {'serial': 'FAKESERIAL'});
+      await waitFor(() => !mirroring.last, 'a snapshot with mirroring: false');
+      expect(mirroring.sublist(count), [false],
+          reason: 'alreadyRunning must not broadcast; only the stop does');
+      expect((await d.listDevices()).single['mirroring'], isFalse);
+    });
+
+    test('an auto-launch is published', () async {
+      final d = await startDaemon(autoLaunch: true, scrcpyPath: idleScrcpy);
+      // Connected before the debounced auto-launch (500 ms after the phone is
+      // ready), so the snapshot with `true` can only come from the launch.
+      final (client, mirroring) = await watch(d);
+
+      await waitFor(() => mirroring.isNotEmpty && mirroring.last,
+          'a snapshot with mirroring: true');
+      expect(mirroring.first, isFalse,
+          reason: 'the first snapshot predates the launch');
+
+      await client.send(IpcCommands.stop, {'serial': 'FAKESERIAL'});
+      await waitFor(() => !mirroring.last, 'a snapshot with mirroring: false');
+    });
+
+    test('a launch that fails leaves the phone not mirroring', () async {
+      // The default scrcpyPath does not exist, so the start throws.
+      final d = await startDaemon();
+      await d.waitForLog('[+] Pixel 7');
+      final (client, mirroring) = await watch(d);
+      await waitFor(() => mirroring.isNotEmpty, 'the catch-up snapshot');
+
+      await expectLater(
+          client.send(IpcCommands.launch, {'serial': 'FAKESERIAL'}),
+          throwsA(isA<IpcCommandFailed>()));
+      // The failed start is followed by a snapshot that says so.
+      await waitFor(() => mirroring.length >= 2, 'a snapshot after the failure');
+
+      expect(mirroring, everyElement(isFalse));
+      expect((await d.listDevices()).single['mirroring'], isFalse);
+    });
   });
 
   group('Go Wireless and handoff for one phone', () {
