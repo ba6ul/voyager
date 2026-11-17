@@ -41,16 +41,17 @@ class HomeWorkspace extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 14),
-          const Expanded(
+          Expanded(
             flex: 6,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                UnitStatusPanel(),
-                SizedBox(height: 12),
-                _QuickOps(),
-                SizedBox(height: 12),
-                Expanded(child: AdbConsolePanel()),
+                const UnitStatusPanel(),
+                const SizedBox(height: 12),
+                const _QuickOps(),
+                const SizedBox(height: 12),
+                Expanded(
+                    child: AdbConsolePanel(daemonLauncher: daemonLauncher)),
               ],
             ),
           ),

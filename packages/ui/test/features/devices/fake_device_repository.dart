@@ -76,6 +76,22 @@ class FakeDeviceRepository implements DeviceRepository {
   @override
   Future<void> usbMode(String serial) => _command(usbModeSerials, serial);
 
+  int stopAllCalls = 0;
+  int quitCalls = 0;
+  Map<String, dynamic> configJson = {'autoLaunch': true};
+
+  @override
+  Future<void> stopAll() async {
+    stopAllCalls++;
+    if (commandError != null) throw commandError!;
+  }
+
+  @override
+  Future<Map<String, dynamic>> config() async => configJson;
+
+  @override
+  Future<void> quit() async => quitCalls++;
+
   @override
   Stream<List<CachedDevice>> get knownDevices => knownDevicesController.stream;
 

@@ -123,5 +123,15 @@ abstract class DeviceRepository {
   /// happened.
   Future<RetryResult> retryReconnect(String usbSerial);
 
+  /// Closes every mirror window the daemon has open.
+  Future<void> stopAll();
+
+  /// The daemon's current config.json contents.
+  Future<Map<String, dynamic>> config();
+
+  /// Shuts the daemon down (it closes every mirror first). The reply comes
+  /// before it exits; the connection then drops.
+  Future<void> quit();
+
   void dispose();
 }

@@ -126,6 +126,21 @@ class DeviceListCubit extends Cubit<DeviceListState> {
         return null;
       });
 
+  // The commands below are for the console: they report failure by throwing
+  // (a DaemonCommandException) instead of showing it on a device row.
+
+  /// Switches [serial] back to USB-only (disconnects a network address).
+  Future<void> usbMode(String serial) => _repository.usbMode(serial);
+
+  /// Closes every mirror window.
+  Future<void> stopAll() => _repository.stopAll();
+
+  /// The daemon's config.json contents.
+  Future<Map<String, dynamic>> daemonConfig() => _repository.config();
+
+  /// Shuts the daemon down.
+  Future<void> quitDaemon() => _repository.quit();
+
   /// Runs [command] for [serial] unless an action for it is already in
   /// flight. [command] returns a message for the row, or null when the
   /// result needs no words.

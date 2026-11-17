@@ -129,7 +129,7 @@ void main() {
     expect(find.textContaining('coming soon'), findsOneWidget);
   });
 
-  testWidgets('the console answers: devices is real, others are not wired', (
+  testWidgets('the console lists real units and says raw shell commands are coming soon', (
     tester,
   ) async {
     await showShell(tester);
@@ -138,13 +138,13 @@ void main() {
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pump();
     await tester.pump(); // the console scrolls to the new line after a frame
-    expect(find.textContaining('65261XEA33U4D0\tdevice'), findsOneWidget);
+    expect(find.textContaining("65261XEA33U4D0  device  usb"), findsOneWidget);
 
     await tester.enterText(find.byType(TextField), 'shell ls');
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pump();
     await tester.pump();
-    expect(find.textContaining("'shell' is not wired yet"), findsOneWidget);
+    expect(find.textContaining("'shell': coming soon"), findsOneWidget);
   });
 
   testWidgets('the palette button cycles the palette', (tester) async {
