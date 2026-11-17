@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../domain/entities/device.dart';
 import '../cubit/device_list_state.dart';
+import '../device_state_text.dart';
 
 class DeviceRow extends StatelessWidget {
   const DeviceRow({
@@ -36,6 +37,7 @@ class DeviceRow extends StatelessWidget {
     final busy = action?.inProgress ?? false;
     VoidCallback? unlessBusy(VoidCallback callback) => busy ? null : callback;
     final actionMessage = action?.message;
+    final stateText = describeDeviceState(device.state);
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
@@ -55,11 +57,19 @@ class DeviceRow extends StatelessWidget {
               ),
               if (!device.isReady)
                 Text(
-                  device.state.name,
+                  stateText.label,
                   style: const TextStyle(color: Colors.orange),
                 ),
             ],
           ),
+          if (!device.isReady && stateText.hint != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                stateText.hint!,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
           if (actionMessage != null)
             Padding(
               padding: const EdgeInsets.only(top: 4),
