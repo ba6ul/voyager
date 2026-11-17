@@ -303,6 +303,45 @@ void main() {
       expect(launcher.isRunning('B'), isTrue);
     });
 
+    // #59: the stop request used to outlive a start that failed, and closed
+    // the next successful mirror for the phone the moment it started.
+    Future<void> failStartWhileStopping(
+        ScrcpyLauncher launcher, void Function() stopIt) async {
+      startGate = Completer<void>();
+      startError = const ProcessException('scrcpy', [], 'not found');
+
+      final failing = launcher.launch('SER1');
+      stopIt();
+      startGate!.complete();
+      await expectLater(failing, throwsA(isA<ProcessException>()));
+
+      startGate = null;
+      startError = null;
+    }
+
+    test('a stop during a start that fails does not close the next mirror',
+        () async {
+      final launcher = newLauncher();
+      await failStartWhileStopping(launcher, () => launcher.stop('SER1'));
+
+      expect(await launcher.launch('SER1'), LaunchResult.started);
+
+      expect(started.single.killed, isFalse);
+      expect(launcher.isRunning('SER1'), isTrue);
+      expect(notices.last, ('started', 'SER1', true));
+    });
+
+    test('a stopAll during a start that fails does not close the next mirror',
+        () async {
+      final launcher = newLauncher();
+      await failStartWhileStopping(launcher, launcher.stopAll);
+
+      expect(await launcher.launch('SER1'), LaunchResult.started);
+
+      expect(started.single.killed, isFalse);
+      expect(launcher.isRunning('SER1'), isTrue);
+    });
+
     test('a stop with nothing starting leaves no trace for the next launch',
         () async {
       final launcher = newLauncher();
