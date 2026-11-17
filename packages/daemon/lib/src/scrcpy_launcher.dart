@@ -103,6 +103,9 @@ class ScrcpyLauncher {
       process = await _start(scrcpyPath, args);
     } catch (_) {
       _starting.remove(serial);
+      // There is no process for a stop that arrived meanwhile to close. Left
+      // in place, it would close the next successful mirror for [serial] (#59).
+      _stopRequested.remove(serial);
       onStartFailed?.call(serial);
       rethrow;
     }
