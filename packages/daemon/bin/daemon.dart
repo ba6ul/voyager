@@ -8,7 +8,7 @@ import 'package:scrcpy_daemon/src/device_tracker.dart';
 import 'package:scrcpy_daemon/src/guarded.dart';
 import 'package:scrcpy_daemon/src/handoff.dart';
 import 'package:scrcpy_daemon/src/in_flight_operations.dart';
-import 'package:scrcpy_daemon/src/known_devices.dart';
+import 'package:scrcpy_daemon/src/saved_wireless/saved_wireless_addresses.dart';
 import 'package:scrcpy_daemon/src/scrcpy_launcher.dart';
 import 'package:scrcpy_daemon/src/wireless.dart';
 import 'package:scrcpy_daemon/src/wireless_reconnector.dart';
@@ -63,7 +63,9 @@ Future<void> _run(List<String> args) async {
     onStartFailed: (_) => broadcastDevices(),
   );
   final wireless = WirelessManager(client);
-  var knownWireless = await KnownDevicesStore.load();
+  final savedWireless = await SavedWirelessAddresses.load(
+    readSerialNumber: client.serialNumber,
+  );
   final reconnector = WirelessReconnector(client: client);
 
   stdout.writeln('config: ${DaemonConfig.configFile().path}');
@@ -94,7 +96,7 @@ Future<void> _run(List<String> args) async {
   reconnectTimer = reconnector.startPeriodic(
     const Duration(seconds: 6),
     () => ReconnectSnapshot(
-      cached: knownWireless,
+      cached: savedWireless.entries,
       live: known,
       handoffInFlight: inFlight.serials,
     ),
@@ -118,22 +120,19 @@ Future<void> _run(List<String> args) async {
       () => ipc.broadcast(IpcEvent.devices(known.values.map(deviceJson).toList()));
 
   List<Map<String, dynamic>> knownDevicesJson() =>
-      knownWireless.values.map((d) => d.toJson()).toList();
+      savedWireless.entries.values.map((d) => d.toJson()).toList();
 
   Future<void> rememberWireless(String usbSerial, String networkSerial) async {
-    final parts = networkSerial.split(':');
     final model = modelNames[usbSerial] ?? await client.model(usbSerial);
-    knownWireless = {
-      ...knownWireless,
-      usbSerial: KnownWirelessDevice(
-        usbSerial: usbSerial,
-        model: model,
-        lastIp: parts[0],
-        lastPort: int.parse(parts[1]),
-      ),
-    };
-    await KnownDevicesStore.save(knownWireless);
-    ipc.broadcast(IpcEvent.knownDevices(knownDevicesJson()));
+    final saved = await savedWireless.record(
+      identity: usbSerial,
+      model: model,
+      networkSerial: networkSerial,
+    );
+    if (!saved) {
+      stdout.writeln('[=] $networkSerial: address already saved, or it did not '
+          'answer as $usbSerial; nothing written');
+    }
   }
 
   // The device is already wireless by the time this runs, so a failure to
@@ -351,6 +350,16 @@ Future<void> _run(List<String> args) async {
       ipc.broadcast(IpcEvent.deviceReady(device.serial, model: name));
 
       scheduleAutoLaunch(device.serial, name);
+
+      // A saved phone seen at a new address keeps its entry current.
+      if (device.isNetwork) {
+        try {
+          await savedWireless.recordSighting(device);
+        } catch (e) {
+          stdout.writeln('[=] could not update the saved address for '
+              '${device.serial}: $e');
+        }
+      }
     },
     onGone: (serial) {
       ipc.broadcast(IpcEvent.deviceGone(serial));
@@ -361,6 +370,9 @@ Future<void> _run(List<String> args) async {
       broadcastDevices();
     },
   );
+
+  savedWireless.changes.listen(
+      (_) => ipc.broadcast(IpcEvent.knownDevices(knownDevicesJson())));
 
   ipc = IpcServer(
     onLog: (message) => stdout.writeln('[ipc] $message'),
@@ -409,7 +421,7 @@ Future<void> _run(List<String> args) async {
           return {};
         case IpcCommands.retryReconnect:
           final serial = requireSerial();
-          final entry = knownWireless[serial];
+          final entry = savedWireless.entries[serial];
           if (entry == null) throw 'no cached wireless info for $serial';
           stdout.writeln('[r] manual retry requested for ${entry.networkSerial}');
           // Answer with the outcome (one bounded `adb connect`, at most its

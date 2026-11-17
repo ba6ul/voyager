@@ -43,6 +43,7 @@ class DaemonHarness {
     bool autoLaunch = false,
     String? scrcpyPath,
     String? adbPath,
+    List<Map<String, dynamic>> savedWireless = const [],
   }) async {
     final dir = Directory.systemTemp.createTempSync('daemon_harness');
     final ipcPort = await freePort();
@@ -57,6 +58,11 @@ class DaemonHarness {
       'scrcpyArgs': <String>[],
       'ipcPort': ipcPort,
     }));
+
+    if (savedWireless.isNotEmpty) {
+      File('${configDir.path}${Platform.pathSeparator}known_wireless_devices.json')
+          .writeAsStringSync(jsonEncode({'devices': savedWireless}));
+    }
 
     final process = await Process.start(
       Platform.resolvedExecutable,
@@ -99,6 +105,16 @@ class DaemonHarness {
       }
       await Future<void>.delayed(const Duration(milliseconds: 25));
     }
+  }
+
+  /// What the daemon has saved in `known_wireless_devices.json`, by USB serial.
+  Map<String, Map<String, dynamic>> savedWireless() {
+    final file = File('${_dir.path}${Platform.pathSeparator}scrcpy_gui'
+        '${Platform.pathSeparator}known_wireless_devices.json');
+    if (!file.existsSync()) return {};
+    final devices = (jsonDecode(file.readAsStringSync())['devices'] as List)
+        .cast<Map<String, dynamic>>();
+    return {for (final d in devices) d['usbSerial'] as String: d};
   }
 
   /// Sends a line to the daemon's stdin, like typing a key in its terminal.

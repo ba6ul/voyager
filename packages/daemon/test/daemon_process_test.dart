@@ -34,12 +34,14 @@ void main() {
     String? adbPath,
     int? adbPort,
     String? scrcpyPath,
+    List<Map<String, dynamic>> savedWireless = const [],
   }) async {
     final d = await DaemonHarness.start(
       adbPort: adbPort ?? adb.port,
       autoLaunch: autoLaunch,
       adbPath: adbPath,
       scrcpyPath: scrcpyPath,
+      savedWireless: savedWireless,
     );
     daemon = d;
     return d;
@@ -412,6 +414,64 @@ void main() {
         );
       }
       expect(d.isAlive, isTrue);
+    });
+  });
+
+  group('saved wireless address (#53)', () {
+    const usbSerial = 'FAKESERIAL'; // what the fake answers for ro.serialno
+    const mdnsSerial = 'adb-FAKESERIAL-HvLNB1._adb-tls-connect._tcp';
+    const oldAddress = '10.0.0.5';
+    const newAddress = '192.168.43.1';
+    final saved = [
+      {
+        'usbSerial': usbSerial,
+        'model': 'Pixel 7',
+        'lastIp': oldAddress,
+        'lastPort': 5555,
+      },
+    ];
+
+    Future<void> waitForSavedIp(DaemonHarness d, String ip) async {
+      final deadline = DateTime.now().add(const Duration(seconds: 20));
+      while (d.savedWireless()[usbSerial]?['lastIp'] != ip) {
+        if (DateTime.now().isAfter(deadline)) {
+          fail('saved address never became $ip: ${d.savedWireless()}\n'
+              '${d.log.join('\n')}');
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+    }
+
+    test('a known phone ready at a new address updates the saved address',
+        () async {
+      final d = await startDaemon(savedWireless: saved);
+      await d.waitForLog('[+] Pixel 7');
+      adb.setDevices('$usbSerial\tdevice\n$newAddress:5555\tdevice\n');
+
+      await waitForSavedIp(d, newAddress);
+    });
+
+    test('Wireless debugging for the same phone never overwrites the address',
+        () async {
+      final d = await startDaemon(savedWireless: saved);
+      await d.waitForLog('[+] Pixel 7');
+      adb.setDevices('$usbSerial\tdevice\n$mdnsSerial\tdevice\n');
+      await d.waitForLog('($mdnsSerial) connected via wireless debugging');
+
+      // Give a wrongly started update time to show up, then check.
+      await Future<void>.delayed(const Duration(seconds: 1));
+      expect(d.savedWireless()[usbSerial]!['lastIp'], oldAddress);
+    });
+
+    test('a different phone at a new address is not saved', () async {
+      adb.setSerialNumber('SOMEONEELSE');
+      final d = await startDaemon(savedWireless: saved);
+      await d.waitForLog('[+] Pixel 7');
+      adb.setDevices('$usbSerial\tdevice\n$newAddress:5555\tdevice\n');
+      await d.waitForLog('($newAddress:5555) connected via wireless');
+
+      await Future<void>.delayed(const Duration(seconds: 1));
+      expect(d.savedWireless()[usbSerial]!['lastIp'], oldAddress);
     });
   });
 }
