@@ -14,9 +14,16 @@ class DeviceListCubit extends Cubit<DeviceListState> {
                 ? DaemonConnection.connected
                 : DaemonConnection.unreachable,
           ))),
-      _repository.devices.listen((devices) => emit(
-            state.copyWith(devices: devices),
-          )),
+      _repository.devices.listen((devices) => emit(state.copyWith(
+            devices: devices,
+            // A device that left takes its finished action status with it.
+            actions: {
+              for (final entry in state.actions.entries)
+                if (entry.value.inProgress ||
+                    devices.any((d) => d.serial == entry.key))
+                  entry.key: entry.value,
+            },
+          ))),
       _repository.deviceReadySerials.listen((serial) {
         onDeviceReady?.call(serial);
       }),
@@ -41,13 +48,87 @@ class DeviceListCubit extends Cubit<DeviceListState> {
     final messages = Map<String, String>.from(state.statusMessages);
     messages[event.serial] =
         '$kind: ${event.stage}${event.detail != null ? " (${event.detail})" : ""}';
-    emit(state.copyWith(statusMessages: messages));
+    // Newer news about the device than a finished action's outcome line.
+    final actions = Map<String, DeviceActionStatus>.from(state.actions);
+    if (actions[event.serial]?.inProgress == false) actions.remove(event.serial);
+    emit(state.copyWith(statusMessages: messages, actions: actions));
   }
 
-  Future<LaunchOutcome> play(String serial) => _repository.launch(serial);
-  Future<void> stop(String serial) => _repository.stop(serial);
-  Future<void> goWireless(String serial) => _repository.goWireless(serial);
-  Future<void> handoff(String serial) => _repository.handoff(serial);
+  // Play/Stop/Go Wireless/Handoff. Each is tracked in DeviceListState.actions
+  // while in flight, and a failure is shown on the row. None of them throws:
+  // the row's callbacks do not await them.
+
+  Future<void> play(String serial) => _runAction(serial, DeviceAction.play,
+      () async {
+        // A start shows as Stop once the daemon's next device list arrives.
+        final outcome = await _repository.launch(serial);
+        return outcome == LaunchOutcome.alreadyRunning
+            ? 'Already mirroring.'
+            : null;
+      });
+
+  Future<void> stop(String serial) =>
+      _runAction(serial, DeviceAction.stop, () async {
+        await _repository.stop(serial);
+        return null;
+      });
+
+  // A request the daemon turns away is not reported here: the daemon sends
+  // the reason as a wireless/handoff status event, shown by _onStatus.
+  Future<void> goWireless(String serial) =>
+      _runAction(serial, DeviceAction.goWireless, () async {
+        await _repository.goWireless(serial);
+        return null;
+      });
+
+  Future<void> handoff(String serial) =>
+      _runAction(serial, DeviceAction.handoff, () async {
+        await _repository.handoff(serial);
+        return null;
+      });
+
+  /// Runs [command] for [serial] unless an action for it is already in
+  /// flight. [command] returns a message for the row, or null when the
+  /// result needs no words.
+  Future<void> _runAction(
+    String serial,
+    DeviceAction action,
+    Future<String?> Function() command,
+  ) async {
+    if (state.actions[serial]?.inProgress ?? false) return;
+    _setAction(serial, DeviceActionStatus.inProgress(action));
+    String? message;
+    try {
+      message = await command();
+    } catch (e) {
+      message = '${_failurePrefix(action)}: $e';
+    }
+    _setAction(
+      serial,
+      message == null ? null : DeviceActionStatus.finished(action, message),
+    );
+  }
+
+  static String _failurePrefix(DeviceAction action) => switch (action) {
+        DeviceAction.play => 'Could not start mirroring',
+        DeviceAction.stop => 'Could not stop mirroring',
+        DeviceAction.goWireless => 'Could not start Go Wireless',
+        DeviceAction.handoff => 'Could not start the handoff',
+      };
+
+  /// Sets or (with null) clears the action status of [serial]. A finished
+  /// status for a device that is no longer listed is not kept.
+  void _setAction(String serial, DeviceActionStatus? status) {
+    if (isClosed) return;
+    final actions = Map<String, DeviceActionStatus>.from(state.actions);
+    final listed = state.devices.any((d) => d.serial == serial);
+    if (status == null || (!status.inProgress && !listed)) {
+      actions.remove(serial);
+    } else {
+      actions[serial] = status;
+    }
+    emit(state.copyWith(actions: actions));
+  }
 
   /// "Try Now" for a cached device. Tracks the attempt in [DeviceListState.retries]
   /// so the row can show progress and, afterwards, what happened.
