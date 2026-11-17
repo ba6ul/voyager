@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../core/daemon/daemon_launcher.dart';
 import '../core/theme/retro_theme.dart';
 import '../core/theme/theme_controller.dart';
 import '../core/widgets/pixel_border.dart';
@@ -20,7 +21,15 @@ import 'app_section.dart';
 /// The handheld: a header strip, a key rail down the left, the LCD with the
 /// active workspace on it, and a status bar. F1-F4 switch workspaces.
 class VoyagerShell extends StatefulWidget {
-  const VoyagerShell({super.key, required this.theme, this.initial});
+  const VoyagerShell({
+    super.key,
+    required this.theme,
+    this.initial,
+    this.daemonLauncher,
+  });
+
+  /// Lets Home start the daemon when it is not running.
+  final DaemonLauncher? daemonLauncher;
 
   final ThemeController theme;
   final AppSection? initial;
@@ -81,11 +90,12 @@ class _VoyagerShellState extends State<VoyagerShell>
                           flicker: _flicker,
                           child: IndexedStack(
                             index: _section.index,
-                            children: const [
-                              HomeWorkspace(),
-                              FlutterWorkspace(),
-                              FileShareWorkspace(),
-                              RecordingWorkspace(),
+                            children: [
+                              HomeWorkspace(
+                                  daemonLauncher: widget.daemonLauncher),
+                              const FlutterWorkspace(),
+                              const FileShareWorkspace(),
+                              const RecordingWorkspace(),
                             ],
                           ),
                         ),

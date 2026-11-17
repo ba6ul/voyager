@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app/voyager_shell.dart';
+import 'core/daemon/daemon_launcher.dart';
 import 'core/ipc/ipc_connection.dart';
 import 'core/theme/retro_theme.dart';
 import 'core/theme/theme_controller.dart';
@@ -117,7 +118,10 @@ class _VoyagerAppState extends State<VoyagerApp> {
           theme: buildRetroTheme(_theme.palette),
           home: HideOnEscape(
             onHide: widget.onHide,
-            child: VoyagerShell(theme: _theme),
+            child: VoyagerShell(
+              theme: _theme,
+              daemonLauncher: const LocalDaemonLauncher(),
+            ),
           ),
         ),
       ),

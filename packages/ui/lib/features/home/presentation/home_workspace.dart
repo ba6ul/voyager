@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../core/daemon/daemon_launcher.dart';
 import '../../../core/widgets/pixel_icon.dart';
 import '../../../core/widgets/pixel_panel.dart';
 import '../../../core/widgets/retro_widgets.dart';
@@ -14,7 +15,10 @@ import 'unit_status_panel.dart';
 /// device list and its actions), then the selected unit's read-out, quick
 /// operations and an ADB console on the right.
 class HomeWorkspace extends StatelessWidget {
-  const HomeWorkspace({super.key});
+  const HomeWorkspace({super.key, this.daemonLauncher});
+
+  /// Lets the unreachable state start the daemon; omitted in tests.
+  final DaemonLauncher? daemonLauncher;
 
   @override
   Widget build(BuildContext context) {
@@ -33,7 +37,7 @@ class HomeWorkspace extends StatelessWidget {
                 builder: (context, state) =>
                     PixelBadge('${state.devices.length}', inverse: true),
               ),
-              child: const DeviceList(),
+              child: DeviceList(daemonLauncher: daemonLauncher),
             ),
           ),
           const SizedBox(width: 14),
