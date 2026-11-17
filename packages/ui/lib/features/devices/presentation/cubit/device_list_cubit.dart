@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../domain/device_repository.dart';
+import '../progress_text.dart';
 import 'device_list_state.dart';
 
 class DeviceListCubit extends Cubit<DeviceListState> {
@@ -14,21 +15,31 @@ class DeviceListCubit extends Cubit<DeviceListState> {
                 ? DaemonConnection.connected
                 : DaemonConnection.unreachable,
           ))),
-      _repository.devices.listen((devices) => emit(state.copyWith(
-            devices: devices,
-            // A device that left takes its finished action status with it.
-            actions: {
-              for (final entry in state.actions.entries)
-                if (entry.value.inProgress ||
-                    devices.any((d) => d.serial == entry.key))
-                  entry.key: entry.value,
-            },
-          ))),
+      _repository.devices.listen((devices) {
+        bool listed(String serial) => devices.any((d) => d.serial == serial);
+        emit(state.copyWith(
+          devices: devices,
+          // A device that left takes its finished action status and progress
+          // line with it, so neither comes back if the serial reappears.
+          actions: {
+            for (final entry in state.actions.entries)
+              if (entry.value.inProgress || listed(entry.key))
+                entry.key: entry.value,
+          },
+          statusMessages: {
+            for (final entry in state.statusMessages.entries)
+              if (!entry.value.finished || listed(entry.key))
+                entry.key: entry.value,
+          },
+        ));
+      }),
       _repository.deviceReadySerials.listen((serial) {
         onDeviceReady?.call(serial);
       }),
-      _repository.wirelessStatus.listen((e) => _onStatus('wireless', e)),
-      _repository.handoffStatus.listen((e) => _onStatus('handoff', e)),
+      _repository.wirelessStatus
+          .listen((e) => _onStatus(ProgressKind.wireless, e)),
+      _repository.handoffStatus
+          .listen((e) => _onStatus(ProgressKind.handoff, e)),
       _repository.knownDevices.listen((knownDevices) => emit(
             state.copyWith(knownDevices: knownDevices),
           )),
@@ -44,10 +55,12 @@ class DeviceListCubit extends Cubit<DeviceListState> {
 
   late final List<StreamSubscription<void>> _subscriptions;
 
-  void _onStatus(String kind, StatusEvent event) {
-    final messages = Map<String, String>.from(state.statusMessages);
-    messages[event.serial] =
-        '$kind: ${event.stage}${event.detail != null ? " (${event.detail})" : ""}';
+  void _onStatus(ProgressKind kind, StatusEvent event) {
+    final messages = Map<String, ProgressLine>.from(state.statusMessages);
+    messages[event.serial] = ProgressLine(
+      describeProgress(kind, event),
+      finished: isFinalStage(event.stage),
+    );
     // Newer news about the device than a finished action's outcome line.
     final actions = Map<String, DeviceActionStatus>.from(state.actions);
     if (actions[event.serial]?.inProgress == false) actions.remove(event.serial);

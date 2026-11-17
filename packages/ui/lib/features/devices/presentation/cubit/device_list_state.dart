@@ -45,6 +45,23 @@ class DeviceActionStatus extends Equatable {
   List<Object?> get props => [action, inProgress, message];
 }
 
+/// The latest Go Wireless or Handoff progress for one device, as shown on its
+/// row.
+class ProgressLine extends Equatable {
+  const ProgressLine(this.text, {required this.finished});
+
+  final String text;
+
+  /// Whether the flow has ended (connected, complete, failed, turned away).
+  /// A line for a flow still running is kept while its device is briefly
+  /// missing from the list (`adb tcpip` restarts the phone's adb, which drops
+  /// the USB entry for a moment); a finished one goes with the device.
+  final bool finished;
+
+  @override
+  List<Object?> get props => [text, finished];
+}
+
 class DeviceListState extends Equatable {
   const DeviceListState({
     this.connection = DaemonConnection.initial,
@@ -59,7 +76,7 @@ class DeviceListState extends Equatable {
   final List<Device> devices;
 
   /// Latest wireless/handoff progress line per serial, for inline display.
-  final Map<String, String> statusMessages;
+  final Map<String, ProgressLine> statusMessages;
 
   /// Devices that have gone wireless before, whether or not they're
   /// currently reachable.
@@ -84,7 +101,7 @@ class DeviceListState extends Equatable {
   DeviceListState copyWith({
     DaemonConnection? connection,
     List<Device>? devices,
-    Map<String, String>? statusMessages,
+    Map<String, ProgressLine>? statusMessages,
     List<CachedDevice>? knownDevices,
     Map<String, RetryStatus>? retries,
     Map<String, DeviceActionStatus>? actions,
