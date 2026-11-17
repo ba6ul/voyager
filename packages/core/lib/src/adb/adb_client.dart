@@ -188,6 +188,17 @@ class AdbClient {
   Future<String> model(String serial) =>
       shell(serial, 'getprop ro.product.model');
 
+  /// The device's hardware serial (`ro.serialno`), read over [serial]'s own
+  /// transport, so the answer comes from whatever answers at that address.
+  /// Null when the device reports none.
+  ///
+  /// No read timeout of its own (#50): a device that accepts the request
+  /// and never answers keeps this pending, so callers apply one.
+  Future<String?> serialNumber(String serial) async {
+    final value = await shell(serial, 'getprop ro.serialno');
+    return value.isEmpty ? null : value;
+  }
+
   /// Restarts adbd on the device in TCP mode. Requires a working (usually
   /// USB) transport. Survives unplugging, resets on phone reboot.
   Future<String> tcpip(String serial, [int devicePort = 5555]) async {

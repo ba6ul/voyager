@@ -14,6 +14,7 @@ class FakeAdbServer {
   final _stalled = <Socket, void Function()>{};
   String _ipRouteOutput =
       '192.168.1.0/24 dev wlan0 proto kernel scope link src 192.168.1.42\n';
+  String _serialNumber = 'FAKESERIAL';
 
   int get port => _server.port;
 
@@ -25,18 +26,29 @@ class FakeAdbServer {
   }
 
   void _handle(Socket socket) async {
+    // A client can vanish mid-request (a daemon process killed at test
+    // teardown). On Linux that surfaces as ECONNRESET on this socket's reads
+    // and writes. Nothing awaits this handler, so an uncaught error would
+    // fail whichever test happens to be running; a fake has nothing to
+    // report about a client that went away.
+    socket.done.catchError((Object _) => socket);
     final buffer = <int>[];
-    await for (final chunk in socket) {
-      buffer.addAll(chunk);
-      while (true) {
-        if (buffer.length < 4) break;
-        final length = int.parse(ascii.decode(buffer.sublist(0, 4)), radix: 16);
-        if (buffer.length < 4 + length) break;
-        final service = ascii.decode(buffer.sublist(4, 4 + length));
-        buffer.removeRange(0, 4 + length);
-        final keepOpen = _dispatch(socket, service);
-        if (!keepOpen) return;
+    try {
+      await for (final chunk in socket) {
+        buffer.addAll(chunk);
+        while (true) {
+          if (buffer.length < 4) break;
+          final length =
+              int.parse(ascii.decode(buffer.sublist(0, 4)), radix: 16);
+          if (buffer.length < 4 + length) break;
+          final service = ascii.decode(buffer.sublist(4, 4 + length));
+          buffer.removeRange(0, 4 + length);
+          final keepOpen = _dispatch(socket, service);
+          if (!keepOpen) return;
+        }
       }
+    } on SocketException {
+      // The client went away; see above.
     }
   }
 
@@ -95,6 +107,8 @@ class FakeAdbServer {
       socket.add(ascii.encode('OKAY'));
       if (command == 'getprop ro.product.model') {
         socket.add(utf8.encode('Pixel 7\n'));
+      } else if (command == 'getprop ro.serialno') {
+        socket.add(utf8.encode('$_serialNumber\n'));
       } else if (command == 'ip route') {
         socket.add(utf8.encode(_ipRouteOutput));
       } else {
@@ -157,6 +171,10 @@ class FakeAdbServer {
   /// Sets what `shell:ip route` returns from now on. An empty string models a
   /// phone with no WiFi address (WiFi off, or the phone is the hotspot).
   void setIpRoute(String output) => _ipRouteOutput = output;
+
+  /// Sets what `shell:getprop ro.serialno` returns from now on (default
+  /// `FAKESERIAL`). An empty string models a device that reports none.
+  void setSerialNumber(String value) => _serialNumber = value;
 
   /// Updates what `host:devices` reports from now on, and pushes the same
   /// snapshot to any live `track-devices` subscribers, as if the device list

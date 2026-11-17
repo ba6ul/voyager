@@ -9,4 +9,5 @@ library scrcpy_core;
 export 'src/adb/adb_client.dart';
 export 'src/adb/adb_protocol.dart';
 export 'src/models/adb_device.dart';
+export 'src/models/device_identity.dart';
 export 'src/testing/fake_server.dart';

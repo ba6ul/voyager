@@ -23,9 +23,9 @@ class DeviceRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final title = device.model ?? device.serial;
-    final subtitle =
-        device.isNetwork ? '${device.serial} (wireless)' : device.serial;
-    final canHandoff = device.isReady && !device.isNetwork && device.mirroring;
+    final label = device.transportLabel;
+    final subtitle = label == null ? device.serial : '${device.serial} ($label)';
+    final canHandoff = device.isReady && device.canGoWireless && device.mirroring;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
@@ -67,7 +67,7 @@ class DeviceRow extends StatelessWidget {
                 device.mirroring
                     ? OutlinedButton(onPressed: onStop, child: const Text('Stop'))
                     : FilledButton(onPressed: onPlay, child: const Text('Play')),
-              if (device.isReady && !device.isNetwork)
+              if (device.isReady && device.canGoWireless)
                 OutlinedButton(
                   onPressed: onGoWireless,
                   child: const Text('Go Wireless'),
