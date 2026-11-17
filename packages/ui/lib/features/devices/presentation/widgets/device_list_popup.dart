@@ -50,6 +50,7 @@ class DeviceListPopup extends StatelessWidget {
                     DeviceRow(
                       device: state.devices[i],
                       statusMessage: state.statusMessages[state.devices[i].serial],
+                      action: state.actions[state.devices[i].serial],
                       onPlay: () => cubit.play(state.devices[i].serial),
                       onStop: () => cubit.stop(state.devices[i].serial),
                       onGoWireless: () => cubit.goWireless(state.devices[i].serial),

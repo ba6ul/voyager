@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../domain/entities/device.dart';
+import '../cubit/device_list_state.dart';
 
 class DeviceRow extends StatelessWidget {
   const DeviceRow({
@@ -11,6 +12,7 @@ class DeviceRow extends StatelessWidget {
     required this.onStop,
     required this.onGoWireless,
     required this.onHandoff,
+    this.action,
   });
 
   final Device device;
@@ -20,12 +22,20 @@ class DeviceRow extends StatelessWidget {
   final VoidCallback onGoWireless;
   final VoidCallback onHandoff;
 
+  /// The last action sent for this device: while it is in flight the buttons
+  /// are disabled; once finished, its message (if any) is shown.
+  final DeviceActionStatus? action;
+
   @override
   Widget build(BuildContext context) {
     final title = device.model ?? device.serial;
     final label = device.transportLabel;
     final subtitle = label == null ? device.serial : '${device.serial} ($label)';
     final canHandoff = device.isReady && device.canGoWireless && device.mirroring;
+    // One command at a time per device; a disabled button sends nothing.
+    final busy = action?.inProgress ?? false;
+    VoidCallback? unlessBusy(VoidCallback callback) => busy ? null : callback;
+    final actionMessage = action?.message;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
@@ -50,6 +60,14 @@ class DeviceRow extends StatelessWidget {
                 ),
             ],
           ),
+          if (actionMessage != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                actionMessage,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
           if (statusMessage != null)
             Padding(
               padding: const EdgeInsets.only(top: 4),
@@ -65,15 +83,19 @@ class DeviceRow extends StatelessWidget {
             children: [
               if (device.isReady)
                 device.mirroring
-                    ? OutlinedButton(onPressed: onStop, child: const Text('Stop'))
-                    : FilledButton(onPressed: onPlay, child: const Text('Play')),
+                    ? OutlinedButton(
+                        onPressed: unlessBusy(onStop), child: const Text('Stop'))
+                    : FilledButton(
+                        onPressed: unlessBusy(onPlay), child: const Text('Play')),
               if (device.isReady && device.canGoWireless)
                 OutlinedButton(
-                  onPressed: onGoWireless,
+                  onPressed: unlessBusy(onGoWireless),
                   child: const Text('Go Wireless'),
                 ),
               if (canHandoff)
-                OutlinedButton(onPressed: onHandoff, child: const Text('Handoff')),
+                OutlinedButton(
+                    onPressed: unlessBusy(onHandoff),
+                    child: const Text('Handoff')),
             ],
           ),
         ],
