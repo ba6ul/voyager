@@ -4,6 +4,11 @@ import '../../domain/entities/device.dart';
 import '../cubit/device_list_state.dart';
 import '../device_state_text.dart';
 
+/// Dark amber for "this phone needs attention": at least 4.5:1 on the
+/// app's light surface (Colors.orange was about 2:1); device_row_fit_test.dart
+/// checks it against the real theme.
+const notReadyColor = Color(0xFFB45309);
+
 class DeviceRow extends StatelessWidget {
   const DeviceRow({
     super.key,
@@ -57,10 +62,18 @@ class DeviceRow extends StatelessWidget {
                   ],
                 ),
               ),
+              // Flexible, so a long label wraps instead of overflowing the row
+              // at the minimum window width or with a large system text size.
               if (!device.isReady)
-                Text(
-                  stateText.label,
-                  style: const TextStyle(color: Colors.orange),
+                Flexible(
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 8),
+                    child: Text(
+                      stateText.label,
+                      textAlign: TextAlign.end,
+                      style: const TextStyle(color: notReadyColor),
+                    ),
+                  ),
                 ),
             ],
           ),

@@ -6,10 +6,17 @@ import 'core/ipc/ipc_connection.dart';
 import 'core/tray/tray_controller.dart';
 import 'features/devices/data/daemon_device_repository.dart';
 import 'features/devices/presentation/cubit/device_list_cubit.dart';
+import 'features/devices/presentation/cubit/device_list_state.dart';
+import 'features/devices/presentation/tray_tooltip.dart';
 import 'features/devices/presentation/widgets/device_list_popup.dart';
+import 'features/devices/presentation/widgets/hide_on_escape.dart';
 
+// Small enough to be a tray window, large enough for the busiest row (Stop,
+// Go Wireless and Handoff wrap onto two lines at this width); see
+// device_row_fit_test.dart, which renders it at exactly this size.
 const _windowOptions = WindowOptions(
   size: Size(360, 480),
+  minimumSize: Size(320, 300),
   center: true,
   skipTaskbar: true,
   title: 'Voyager',
@@ -40,7 +47,19 @@ Future<void> main() async {
     },
   );
 
-  runApp(VoyagerApp(cubit: cubit));
+  // Keep the tray tooltip in step with the device list; set only on change.
+  var tooltip = '';
+  void updateTooltip(DeviceListState state) {
+    final next = describeTray(state);
+    if (next == tooltip) return;
+    tooltip = next;
+    tray.setToolTip(next);
+  }
+
+  updateTooltip(cubit.state);
+  cubit.stream.listen(updateTooltip);
+
+  runApp(VoyagerApp(cubit: cubit, onHide: windowManager.hide));
 }
 
 /// Clicking the window's close button hides it (the app keeps running in
@@ -55,9 +74,12 @@ class _HideInsteadOfCloseListener extends WindowListener {
 }
 
 class VoyagerApp extends StatelessWidget {
-  const VoyagerApp({super.key, required this.cubit});
+  const VoyagerApp({super.key, required this.cubit, required this.onHide});
 
   final DeviceListCubit cubit;
+
+  /// Puts the window away (Esc); the app keeps running in the tray.
+  final VoidCallback onHide;
 
   @override
   Widget build(BuildContext context) {
@@ -67,7 +89,7 @@ class VoyagerApp extends StatelessWidget {
         title: 'Voyager',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.indigo),
-        home: const DeviceListPopup(),
+        home: HideOnEscape(onHide: onHide, child: const DeviceListPopup()),
       ),
     );
   }
