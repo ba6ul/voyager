@@ -33,6 +33,8 @@ class ScrcpyLauncher {
     required this.scrcpyPath,
     this.baseArgs = const [],
     this.onExit,
+    this.onStarted,
+    this.onStartFailed,
     ProcessStarter? processStarter,
   }) : _start = processStarter ?? Process.start;
 
@@ -43,6 +45,17 @@ class ScrcpyLauncher {
   /// it to (`stop`/`stopAll`) or it died on its own (e.g. the adb transport
   /// dropping out from under it during a `tcpip` restart).
   final void Function(String serial, int exitCode)? onExit;
+
+  /// Called once a launched scrcpy process exists and is tracked, i.e. when
+  /// [isRunning] has settled on true for [serial]. Not called for
+  /// [LaunchResult.alreadyRunning], nor for a process that a [stop] issued
+  /// while it was starting closes at once (its exit goes to [onExit]).
+  final void Function(String serial)? onStarted;
+
+  /// Called when starting scrcpy for [serial] threw, after the slot was
+  /// released, so [isRunning] is false again. Anyone who read [isRunning]
+  /// while the start was pending saw true and needs to hear it was not.
+  final void Function(String serial)? onStartFailed;
 
   final ProcessStarter _start;
 
@@ -88,16 +101,20 @@ class ScrcpyLauncher {
     final Process process;
     try {
       process = await _start(scrcpyPath, args);
-    } finally {
+    } catch (_) {
       _starting.remove(serial);
+      onStartFailed?.call(serial);
+      rethrow;
     }
+    _starting.remove(serial);
     // A stop that arrived while the process was starting had nothing to kill
     // yet; honour it now instead of leaving a mirror the caller closed. The
     // process is then not tracked, and its exit is still reported below.
-    if (_stopRequested.remove(serial)) {
-      process.kill();
-    } else {
+    final tracked = !_stopRequested.remove(serial);
+    if (tracked) {
       _running[serial] = process;
+    } else {
+      process.kill();
     }
 
     // Surface scrcpy's own errors in the daemon log, drop the noise.
@@ -119,6 +136,8 @@ class ScrcpyLauncher {
       stdout.writeln('[x] scrcpy for $serial closed (exit $code)');
       if (!superseded) onExit?.call(serial, code);
     }));
+    // Last, so the exit handler above is in place even if this throws.
+    if (tracked) onStarted?.call(serial);
     return LaunchResult.started;
   }
 

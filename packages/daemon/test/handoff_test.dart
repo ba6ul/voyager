@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:scrcpy_core/scrcpy_core.dart';
@@ -15,6 +16,12 @@ class MockScrcpyLauncher implements ScrcpyLauncher {
 
   @override
   final void Function(String serial, int exitCode)? onExit = null;
+
+  @override
+  final void Function(String serial)? onStarted = null;
+
+  @override
+  final void Function(String serial)? onStartFailed = null;
 
   final List<LaunchCall> launches = [];
   final List<String> stops = [];
@@ -75,6 +82,32 @@ class MockScrcpyLauncher implements ScrcpyLauncher {
   }
 }
 
+/// A scrcpy process for the real [ScrcpyLauncher] that runs until killed.
+class _IdleProcess implements Process {
+  final _exit = Completer<int>();
+
+  @override
+  Future<int> get exitCode => _exit.future;
+
+  @override
+  bool kill([ProcessSignal signal = ProcessSignal.sigterm]) {
+    if (!_exit.isCompleted) _exit.complete(1);
+    return true;
+  }
+
+  @override
+  int get pid => 1;
+
+  @override
+  Stream<List<int>> get stdout => const Stream.empty();
+
+  @override
+  Stream<List<int>> get stderr => const Stream.empty();
+
+  @override
+  IOSink get stdin => throw UnimplementedError();
+}
+
 class LaunchCall {
   LaunchCall(this.serial, this.windowTitle, this.extraArgs);
   final String serial;
@@ -128,6 +161,45 @@ void main() {
         launcher.getEventTrace(),
         ['launch(FAKESERIAL)', 'launch($_phoneWifiSerial)', 'stop(FAKESERIAL)'],
       );
+    });
+
+    test('the wireless mirror is reported as started before the USB one '
+        'closes (#56)', () async {
+      // The real launcher, so the start and exit callbacks the daemon turns
+      // into device snapshots fire as they would in production.
+      final events = <String>[];
+      late final ScrcpyLauncher real;
+      real = ScrcpyLauncher(
+        scrcpyPath: 'scrcpy',
+        processStarter: (_, __) async => _IdleProcess(),
+        onStarted: (serial) => events.add('started $serial '
+            '(wireless running: ${real.isRunning(_phoneWifiSerial)}, '
+            'USB running: ${real.isRunning('FAKESERIAL')})'),
+        onExit: (serial, _) => events.add('exited $serial'),
+      );
+      await real.launch('FAKESERIAL', windowTitle: 'Pixel 7');
+      server.setDevices('FAKESERIAL\tdevice\n$_phoneWifiSerial\tdevice\n');
+
+      final result = await handoff(
+        client: client,
+        launcher: real,
+        usbSerial: 'FAKESERIAL',
+        deviceName: 'Pixel 7',
+        gateways: _noGateways,
+        timeout: const Duration(seconds: 5),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(result, _phoneWifiSerial);
+      expect(events, [
+        'started FAKESERIAL (wireless running: false, USB running: true)',
+        // Published at launch time, while the USB mirror is still open: the
+        // wireless row no longer waits for the USB window to close.
+        'started $_phoneWifiSerial (wireless running: true, USB running: true)',
+        'exited FAKESERIAL',
+      ]);
+      expect(real.isRunning(_phoneWifiSerial), isTrue);
+      real.stopAll();
     });
 
     test('handoff times out if wireless never appears', () async {
