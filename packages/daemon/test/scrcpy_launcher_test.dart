@@ -38,13 +38,21 @@ void main() {
   late List<FakeProcess> started;
   late List<List<String>> startedArgs;
   late List<(String, int)> exits;
+  // What the launcher told its owner, in order, with whether the serial
+  // counted as running at that moment: ('started', 'SER1', true).
+  late List<(String, String, bool)> notices;
   Completer<void>? startGate;
   Object? startError;
 
-  ScrcpyLauncher newLauncher() => ScrcpyLauncher(
+  late ScrcpyLauncher current;
+  ScrcpyLauncher newLauncher() => current = ScrcpyLauncher(
         scrcpyPath: 'scrcpy',
         baseArgs: const ['--stay-awake'],
         onExit: (serial, code) => exits.add((serial, code)),
+        onStarted: (serial) =>
+            notices.add(('started', serial, current.isRunning(serial))),
+        onStartFailed: (serial) =>
+            notices.add(('startFailed', serial, current.isRunning(serial))),
         processStarter: (exe, args) async {
           startedArgs.add(args);
           await startGate?.future;
@@ -59,6 +67,7 @@ void main() {
     started = [];
     startedArgs = [];
     exits = [];
+    notices = [];
     startGate = null;
     startError = null;
   });
@@ -303,6 +312,87 @@ void main() {
 
       expect(started.single.killed, isFalse);
       expect(launcher.isRunning('SER1'), isTrue);
+    });
+  });
+
+  // #56: the daemon re-sends its device list from these callbacks, so the
+  // UI's Play/Stop follows a launch as it already follows an exit.
+  group('start notifications', () {
+    test('a successful launch reports started once, already running',
+        () async {
+      final launcher = newLauncher();
+
+      expect(await launcher.launch('SER1'), LaunchResult.started);
+
+      expect(notices, [('started', 'SER1', true)]);
+    });
+
+    test('alreadyRunning reports nothing', () async {
+      final launcher = newLauncher();
+      await launcher.launch('SER1');
+      notices.clear();
+
+      expect(await launcher.launch('SER1'), LaunchResult.alreadyRunning);
+
+      expect(notices, isEmpty);
+    });
+
+    test('two concurrent launches report started once', () async {
+      startGate = Completer<void>();
+      final launcher = newLauncher();
+
+      final a = launcher.launch('SER1');
+      final b = launcher.launch('SER1');
+      startGate!.complete();
+      await Future.wait([a, b]);
+
+      expect(notices, [('started', 'SER1', true)]);
+    });
+
+    test('a failed start reports startFailed, no longer running', () async {
+      startGate = Completer<void>();
+      final launcher = newLauncher();
+      startError = const ProcessException('scrcpy', [], 'not found');
+
+      final launch = launcher.launch('SER1');
+      // While the start is pending the serial counts as running, which is
+      // what a device list built at this moment would say.
+      expect(launcher.isRunning('SER1'), isTrue);
+      startGate!.complete();
+      await expectLater(launch, throwsA(isA<ProcessException>()));
+
+      expect(launcher.isRunning('SER1'), isFalse);
+      expect(notices, [('startFailed', 'SER1', false)]);
+    });
+
+    test('a process closed by a stop issued while starting reports no start',
+        () async {
+      startGate = Completer<void>();
+      final launcher = newLauncher();
+
+      final launch = launcher.launch('SER1');
+      launcher.stop('SER1');
+      startGate!.complete();
+      await launch;
+      started.single.exitWith(143);
+      await settle();
+
+      expect(notices, isEmpty);
+      expect(exits, [('SER1', 143)], reason: 'the exit still reports it');
+    });
+
+    test('stop and exit after a start report the exit only', () async {
+      final launcher = newLauncher();
+      await launcher.launch('SER1');
+      notices.clear();
+
+      launcher.stop('SER1');
+      started.single.exitWith(1);
+      await settle();
+
+      expect(notices, isEmpty);
+      expect(exits, [('SER1', 1)]);
+      expect(launcher.isRunning('SER1'), isFalse);
     });
   });
 
