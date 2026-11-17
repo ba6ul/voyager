@@ -62,10 +62,18 @@ class DeviceRow extends StatelessWidget {
                   ],
                 ),
               ),
+              // Flexible, so a long label wraps instead of overflowing the row
+              // at the minimum window width or with a large system text size.
               if (!device.isReady)
-                Text(
-                  stateText.label,
-                  style: const TextStyle(color: notReadyColor),
+                Flexible(
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 8),
+                    child: Text(
+                      stateText.label,
+                      textAlign: TextAlign.end,
+                      style: const TextStyle(color: notReadyColor),
+                    ),
+                  ),
                 ),
             ],
           ),
