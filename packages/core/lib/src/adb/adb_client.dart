@@ -177,7 +177,7 @@ class AdbClient {
     try {
       return await () async {
         await conn.request('host:pair:$code:$address');
-        return AdbPairing.parseResponse(await conn.readHexPayloadString());
+        return AdbPairing.parseResponse(await conn.readPairReply());
       }()
           .timeout(timeout);
     } on TimeoutException {
@@ -298,6 +298,21 @@ class _AdbConnection {
 
   Future<String> readHexPayloadString() async {
     final length = AdbProtocol.parseHexLength(await _reader.readBytes(4));
+    if (length == 0) return '';
+    return utf8.decode(await _reader.readBytes(length), allowMalformed: true);
+  }
+
+  /// The reply to `host:pair`. After the usual OKAY the server sends a second
+  /// status of its own, `OKAY` or `FAIL`, then the message as a hex-length
+  /// payload (`OKAYFAIL0027Failed: Unable to start pairing client.`). A reply
+  /// with no second status is read as a plain payload.
+  Future<String> readPairReply() async {
+    final head = await _reader.readBytes(4);
+    final status = ascii.decode(head, allowInvalid: true);
+    if (status == AdbProtocol.statusOkay || status == AdbProtocol.statusFail) {
+      return readHexPayloadString();
+    }
+    final length = AdbProtocol.parseHexLength(head);
     if (length == 0) return '';
     return utf8.decode(await _reader.readBytes(length), allowMalformed: true);
   }

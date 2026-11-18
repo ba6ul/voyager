@@ -93,12 +93,12 @@ class FakeAdbServer {
               '[guid=adb-FAKESERIAL-abc123]';
       if (_stallPairReplies) {
         _stalled[socket] = () {
-          _okayWithPayload(socket, reply);
+          _pairPayload(socket, reply);
           _end(socket);
         };
         return true;
       }
-      _okayWithPayload(socket, reply);
+      _pairPayload(socket, reply);
       _end(socket);
       return false;
     }
@@ -229,6 +229,14 @@ class FakeAdbServer {
 
   void _pushSnapshot(Socket socket, String payload) =>
       _hexPayload(socket, payload);
+
+  /// What the real adb server sends for `host:pair`: OKAY, then its own
+  /// OKAY or FAIL status, then the message.
+  void _pairPayload(Socket socket, String message) {
+    socket.add(ascii.encode(
+        message.toLowerCase().startsWith('successfully') ? 'OKAYOKAY' : 'OKAYFAIL'));
+    _hexPayload(socket, message);
+  }
 
   void _okayWithPayload(Socket socket, String payload) {
     socket.add(ascii.encode('OKAY'));
