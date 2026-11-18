@@ -14,6 +14,8 @@ class FakeDeviceRepository implements DeviceRepository {
   final handoffStatusController = StreamController<StatusEvent>.broadcast();
   final knownDevicesController = StreamController<List<CachedDevice>>.broadcast();
 
+  final pairingStatusController = StreamController<PairingStatus>.broadcast();
+  final List<({String address, String code})> pairCalls = [];
   final List<String> playedSerials = [];
   final List<String> stoppedSerials = [];
   final List<String> wirelessSerials = [];
@@ -40,6 +42,16 @@ class FakeDeviceRepository implements DeviceRepository {
 
   @override
   Stream<StatusEvent> get handoffStatus => handoffStatusController.stream;
+
+  @override
+  Stream<PairingStatus> get pairingStatus => pairingStatusController.stream;
+
+  @override
+  Future<void> pair({required String address, required String code}) async {
+    pairCalls.add((address: address, code: code));
+    await commandGate?.future;
+    if (commandError != null) throw commandError!;
+  }
 
   /// What the next launch returns, unless [commandError] is set.
   LaunchOutcome launchOutcome = LaunchOutcome.started;

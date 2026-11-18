@@ -11,6 +11,7 @@ import 'package:scrcpy_daemon/src/in_flight_operations.dart';
 import 'package:scrcpy_daemon/src/saved_wireless/saved_wireless_addresses.dart';
 import 'package:scrcpy_daemon/src/scrcpy_launcher.dart';
 import 'package:scrcpy_daemon/src/wireless.dart';
+import 'package:scrcpy_daemon/src/wireless_debugging_pairer.dart';
 import 'package:scrcpy_daemon/src/wireless_reconnector.dart';
 import 'package:scrcpy_ipc/scrcpy_ipc.dart';
 
@@ -63,6 +64,7 @@ Future<void> _run(List<String> args) async {
     onStartFailed: (_) => broadcastDevices(),
   );
   final wireless = WirelessManager(client);
+  final pairer = WirelessDebuggingPairer(client: client);
   final savedWireless = await SavedWirelessAddresses.load(
     readSerialNumber: client.serialNumber,
   );
@@ -446,6 +448,43 @@ Future<void> _run(List<String> args) async {
                   'connected or a wireless flow is running',
           });
           return {'outcome': outcome.name, 'address': entry.networkSerial};
+        case IpcCommands.pair:
+          final address = request.args['address'];
+          final code = request.args['code'];
+          if (address is! String || !AdbPairing.isValidAddress(address)) {
+            throw 'the pairing address must look like 192.168.1.8:37123';
+          }
+          if (code is! String || !AdbPairing.isValidCode(code)) {
+            throw 'the pairing code is 6 digits';
+          }
+          if (pairer.busy) throw 'a pairing is already in progress';
+          // The code is passed on and never logged or echoed.
+          stdout.writeln('[p] pairing with $address');
+          unawaited(guarded(
+            'pair $address',
+            () => pairer.pair(
+              address,
+              code,
+              onStatus: (stage, [detail]) {
+                stdout.writeln('[p] $stage${detail == null ? '' : ': $detail'}');
+                ipc.broadcast(IpcEvent.pairingStatus(stage, detail));
+              },
+              onConnected: (identity, serial) => unawaited(guarded(
+                'save paired $serial',
+                () async {
+                  final model = await client.model(serial);
+                  await savedWireless.record(
+                    identity: identity,
+                    model: model,
+                    networkSerial: serial,
+                  );
+                },
+              )),
+            ),
+            onError: (error, _) =>
+                ipc.broadcast(IpcEvent.pairingStatus('failed', '$error')),
+          ));
+          return {'started': true};
         case IpcCommands.getConfig:
           return config.toJson();
         case IpcCommands.setConfig:

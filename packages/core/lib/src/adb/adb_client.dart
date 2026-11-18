@@ -155,6 +155,41 @@ class AdbClient {
     }
   }
 
+  /// `adb pair <address> <code>`: pairs this PC with a phone's Wireless
+  /// debugging, using the 6-digit code and `ip:port` its pairing dialog shows.
+  ///
+  /// Both are validated before anything is sent. The server only answers when
+  /// the phone has, so [timeout] bounds the wait; a phone that never answers
+  /// is reported as [PairOutcome.unreachable]. The code is sent to the local
+  /// adb server and appears in no exception or result text.
+  Future<PairResult> pair(
+    String address,
+    String code, {
+    Duration timeout = const Duration(seconds: 20),
+  }) async {
+    if (!AdbPairing.isValidAddress(address)) {
+      throw ArgumentError.value(address, 'address', 'not an ip:port');
+    }
+    if (!AdbPairing.isValidCode(code)) {
+      throw ArgumentError('the pairing code is 6 digits');
+    }
+    final conn = await _open();
+    try {
+      return await () async {
+        await conn.request('host:pair:$code:$address');
+        return AdbPairing.parseResponse(await conn.readPairReply());
+      }()
+          .timeout(timeout);
+    } on TimeoutException {
+      return const PairResult(
+          PairOutcome.unreachable, 'the phone did not answer in time');
+    } on AdbServerException catch (e) {
+      return AdbPairing.parseResponse(e.message);
+    } finally {
+      await conn.close();
+    }
+  }
+
   static bool connectSucceeded(String message) =>
       message.contains('connected to') && !message.contains('failed');
 
@@ -263,6 +298,21 @@ class _AdbConnection {
 
   Future<String> readHexPayloadString() async {
     final length = AdbProtocol.parseHexLength(await _reader.readBytes(4));
+    if (length == 0) return '';
+    return utf8.decode(await _reader.readBytes(length), allowMalformed: true);
+  }
+
+  /// The reply to `host:pair`. After the usual OKAY the server sends a second
+  /// status of its own, `OKAY` or `FAIL`, then the message as a hex-length
+  /// payload (`OKAYFAIL0027Failed: Unable to start pairing client.`). A reply
+  /// with no second status is read as a plain payload.
+  Future<String> readPairReply() async {
+    final head = await _reader.readBytes(4);
+    final status = ascii.decode(head, allowInvalid: true);
+    if (status == AdbProtocol.statusOkay || status == AdbProtocol.statusFail) {
+      return readHexPayloadString();
+    }
+    final length = AdbProtocol.parseHexLength(head);
     if (length == 0) return '';
     return utf8.decode(await _reader.readBytes(length), allowMalformed: true);
   }

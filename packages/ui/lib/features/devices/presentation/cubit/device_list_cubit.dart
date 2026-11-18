@@ -209,8 +209,9 @@ class DeviceListCubit extends Cubit<DeviceListState> {
       case RetryOutcome.reconnected:
         return 'Connected to $where – waiting for the phone to report in…';
       case RetryOutcome.unreachable:
-        return 'No answer from $where. If the phone restarted or changed '
-            'network, plug it in with USB and use Go Wireless again.';
+        return 'No answer from $where. The phone may have restarted, changed '
+            'network, or no longer trusts this PC. Pair it again with PAIR, '
+            'or plug it in with USB and use Go Wireless.';
       case RetryOutcome.skipped:
         return 'Not retried: this phone is already connected, or a wireless '
             'setup is running.';

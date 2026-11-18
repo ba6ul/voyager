@@ -27,6 +27,18 @@ enum RetryOutcome {
   requested,
 }
 
+/// Progress or result of a Wireless debugging pairing, as the daemon reports
+/// it (see `IpcEvents.pairingStatus`).
+class PairingStatus {
+  const PairingStatus({required this.stage, this.detail});
+
+  /// pairing, searching, connected, pairedOnly, wrongCode, unreachable or
+  /// failed. A stage this UI does not know (a newer daemon) is shown as
+  /// progress.
+  final String stage;
+  final String? detail;
+}
+
 /// What the daemon did with a Play.
 enum LaunchOutcome {
   /// A new scrcpy process was started.
@@ -105,6 +117,16 @@ abstract class DeviceRepository {
   /// Devices that have gone wireless before, whether or not they're
   /// currently reachable.
   Stream<List<CachedDevice>> get knownDevices;
+
+  /// Progress and result of [pair].
+  Stream<PairingStatus> get pairingStatus;
+
+  /// Starts pairing with the phone's Wireless debugging dialog: [address] is
+  /// the `ip:port` and [code] the 6 digits it shows. Returns once the daemon
+  /// has accepted the request; progress and the result come through
+  /// [pairingStatus]. Throws [DaemonCommandException] if it was turned down
+  /// (malformed input, a pairing already running).
+  Future<void> pair({required String address, required String code});
 
   Future<LaunchOutcome> launch(String serial);
   Future<void> stop(String serial);

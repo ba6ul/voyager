@@ -9,6 +9,7 @@ import 'core/theme/retro_theme.dart';
 import 'core/theme/theme_controller.dart';
 import 'core/tray/tray_controller.dart';
 import 'features/devices/data/daemon_device_repository.dart';
+import 'features/devices/domain/device_repository.dart';
 import 'features/devices/presentation/cubit/device_list_cubit.dart';
 import 'features/devices/presentation/cubit/device_list_state.dart';
 import 'features/devices/presentation/tray_tooltip.dart';
@@ -63,7 +64,10 @@ Future<void> main() async {
   updateTooltip(cubit.state);
   cubit.stream.listen(updateTooltip);
 
-  runApp(VoyagerApp(cubit: cubit, onHide: windowManager.hide));
+  runApp(RepositoryProvider<DeviceRepository>.value(
+    value: repository,
+    child: VoyagerApp(cubit: cubit, onHide: windowManager.hide),
+  ));
 }
 
 /// Clicking the window's close button hides it (the app keeps running in

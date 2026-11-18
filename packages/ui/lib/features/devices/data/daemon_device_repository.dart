@@ -62,10 +62,12 @@ class DaemonDeviceRepository implements DeviceRepository {
   /// [DaemonCommandException]. Async on purpose: [IpcConnection.send] throws
   /// synchronously when there is no connection, and that must be caught here
   /// too, not escape to the caller.
-  Future<IpcResult> _send(String cmd, [String? serial]) async {
+  Future<IpcResult> _send(String cmd, [String? serial]) =>
+      _sendArgs(cmd, serial == null ? const {} : {'serial': serial});
+
+  Future<IpcResult> _sendArgs(String cmd, Map<String, dynamic> args) async {
     try {
-      return await _connection
-          .send(cmd, serial == null ? const {} : {'serial': serial});
+      return await _connection.send(cmd, args);
     } on IpcCommandFailed catch (e) {
       throw DaemonCommandException(
           DaemonCommandFailure.rejected, _firstLine(e.message));
@@ -80,6 +82,18 @@ class DaemonDeviceRepository implements DeviceRepository {
   /// The daemon's error text can be a multi-line exception (e.g. a
   /// ProcessException with the full command); its first line says enough.
   static String _firstLine(String text) => text.trim().split('\n').first.trim();
+
+  @override
+  Stream<PairingStatus> get pairingStatus => _connection.events
+      .where((e) => e.event == IpcEvents.pairingStatus)
+      .map((e) => PairingStatus(
+            stage: e.data['stage'] as String,
+            detail: e.data['detail'] as String?,
+          ));
+
+  @override
+  Future<void> pair({required String address, required String code}) =>
+      _sendArgs(IpcCommands.pair, {'address': address, 'code': code});
 
   @override
   Future<LaunchOutcome> launch(String serial) async {
