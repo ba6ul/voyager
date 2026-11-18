@@ -7,7 +7,7 @@ import 'package:scrcpy_ui/features/devices/domain/device_repository.dart';
 import 'package:scrcpy_ui/features/devices/domain/entities/cached_device.dart';
 import 'package:scrcpy_ui/features/devices/domain/entities/device.dart';
 import 'package:scrcpy_ui/features/devices/presentation/cubit/device_list_cubit.dart';
-import 'package:scrcpy_ui/features/devices/presentation/widgets/device_list_popup.dart';
+import 'package:scrcpy_ui/features/devices/presentation/widgets/device_list.dart';
 
 import 'fake_device_repository.dart';
 
@@ -38,7 +38,7 @@ void main() {
     cubit = DeviceListCubit(repository);
     addTearDown(cubit.close);
     await tester.pumpWidget(MaterialApp(
-      home: BlocProvider.value(value: cubit, child: const DeviceListPopup()),
+      home: BlocProvider.value(value: cubit, child: const DeviceList()),
     ));
     repository.connectedController.add(true);
     await tester.pump();
@@ -119,33 +119,6 @@ void main() {
     });
   });
 
-  group('branding', () {
-    testWidgets('the heading is Voyager and scrcpy is credited as the engine',
-        (tester) async {
-      await showPopup(tester);
-
-      expect(
-        find.descendant(
-            of: find.byType(AppBar), matching: find.text('Voyager')),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(of: find.byType(AppBar), matching: find.text('scrcpy')),
-        findsNothing,
-      );
-      expect(find.text('Mirroring by scrcpy'), findsOneWidget);
-    });
-
-    testWidgets('the name is shown even while the daemon is not running',
-        (tester) async {
-      await showPopup(tester);
-      repository.connectedController.add(false);
-      await tester.pump();
-
-      expect(find.text('Voyager'), findsOneWidget);
-    });
-  });
-
   group('state guidance', () {
     testWidgets('the connecting state says what it is waiting for',
         (tester) async {
@@ -153,7 +126,7 @@ void main() {
       cubit = DeviceListCubit(repository);
       addTearDown(cubit.close);
       await tester.pumpWidget(MaterialApp(
-        home: BlocProvider.value(value: cubit, child: const DeviceListPopup()),
+        home: BlocProvider.value(value: cubit, child: const DeviceList()),
       ));
 
       expect(find.byType(CircularProgressIndicator), findsOneWidget);

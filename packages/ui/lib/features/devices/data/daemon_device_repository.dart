@@ -62,9 +62,10 @@ class DaemonDeviceRepository implements DeviceRepository {
   /// [DaemonCommandException]. Async on purpose: [IpcConnection.send] throws
   /// synchronously when there is no connection, and that must be caught here
   /// too, not escape to the caller.
-  Future<IpcResult> _send(String cmd, String serial) async {
+  Future<IpcResult> _send(String cmd, [String? serial]) async {
     try {
-      return await _connection.send(cmd, {'serial': serial});
+      return await _connection
+          .send(cmd, serial == null ? const {} : {'serial': serial});
     } on IpcCommandFailed catch (e) {
       throw DaemonCommandException(
           DaemonCommandFailure.rejected, _firstLine(e.message));
@@ -100,6 +101,16 @@ class DaemonDeviceRepository implements DeviceRepository {
 
   @override
   Future<void> usbMode(String serial) => _send(IpcCommands.usbMode, serial);
+
+  @override
+  Future<void> stopAll() => _send(IpcCommands.stopAll);
+
+  @override
+  Future<Map<String, dynamic>> config() async =>
+      (await _send(IpcCommands.getConfig)).data;
+
+  @override
+  Future<void> quit() => _send(IpcCommands.quit);
 
   @override
   Future<RetryResult> retryReconnect(String usbSerial) async {

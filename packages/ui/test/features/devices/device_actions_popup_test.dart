@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:scrcpy_ui/features/devices/domain/device_repository.dart';
 import 'package:scrcpy_ui/features/devices/domain/entities/device.dart';
 import 'package:scrcpy_ui/features/devices/presentation/cubit/device_list_cubit.dart';
-import 'package:scrcpy_ui/features/devices/presentation/widgets/device_list_popup.dart';
+import 'package:scrcpy_ui/features/devices/presentation/widgets/device_list.dart';
 
 import 'fake_device_repository.dart';
 
@@ -31,7 +31,7 @@ void main() {
     final cubit = DeviceListCubit(repository);
     addTearDown(cubit.close);
     await tester.pumpWidget(MaterialApp(
-      home: BlocProvider.value(value: cubit, child: const DeviceListPopup()),
+      home: BlocProvider.value(value: cubit, child: const DeviceList()),
     ));
     repository.connectedController.add(true);
     repository.devicesController.add([_phone(mirroring: mirroring)]);
