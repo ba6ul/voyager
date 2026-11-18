@@ -12,6 +12,7 @@ void main() {
 
   setUp(() async {
     adb = await FakeAdbServer.start();
+    adb.connectListsDevices(true);
     client = AdbClient(port: adb.port);
     stages = [];
     details = [];
@@ -30,6 +31,9 @@ void main() {
         scanPorts: scan ?? (host, from, to, skip) async => [],
         autoConnectWait: const Duration(milliseconds: 100),
         pollInterval: const Duration(milliseconds: 20),
+        scanWindow: const Duration(milliseconds: 150),
+        scanRetryInterval: const Duration(milliseconds: 20),
+        readyWait: const Duration(milliseconds: 100),
       );
 
   test('a wrong code ends at wrongCode and never searches', () async {
@@ -83,6 +87,26 @@ void main() {
     expect(scannedHost, '192.168.1.8');
     expect(skipped, {37123}, reason: 'the pairing port is not a connect port');
     expect(savedIdentity, 'FAKESERIAL');
+  });
+
+  test('a port that stays offline is skipped and disconnected', () async {
+    adb.connectStaysOffline('192.168.1.8:40001');
+
+    await pairer(scan: (h, f, t, s) async => [40001, 40002])
+        .pair('192.168.1.8:37123', '123456', onStatus: onStatus);
+
+    expect(stages.last, 'connected');
+    expect(details.last, '192.168.1.8:40002');
+  });
+
+  test('the scan is retried until the real port shows up', () async {
+    var round = 0;
+
+    await pairer(scan: (h, f, t, s) async => ++round < 3 ? [] : [40001])
+        .pair('192.168.1.8:37123', '123456', onStatus: onStatus);
+
+    expect(round, 3);
+    expect(details.last, '192.168.1.8:40001');
   });
 
   test('paired but no connect port found ends at pairedOnly', () async {

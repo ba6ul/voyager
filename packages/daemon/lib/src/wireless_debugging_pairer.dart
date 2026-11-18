@@ -36,6 +36,9 @@ class WirelessDebuggingPairer {
     PortScanner? scanPorts,
     this.autoConnectWait = const Duration(seconds: 4),
     this.pollInterval = const Duration(milliseconds: 500),
+    this.scanWindow = const Duration(seconds: 20),
+    this.scanRetryInterval = const Duration(seconds: 1),
+    this.readyWait = const Duration(seconds: 4),
     this.scanFrom = 32768,
     this.scanTo = 60999,
   }) : _scan = scanPorts ?? scanOpenPorts;
@@ -46,6 +49,14 @@ class WirelessDebuggingPairer {
   /// How long adb gets to connect on its own after pairing.
   final Duration autoConnectWait;
   final Duration pollInterval;
+
+  /// How long to keep scanning: right after pairing the phone's ports are
+  /// still changing, so one scan can miss the real connect port.
+  final Duration scanWindow;
+  final Duration scanRetryInterval;
+
+  /// How long a connected port gets to reach the `device` state.
+  final Duration readyWait;
 
   /// Linux's ephemeral range, where Android picks the Wireless debugging port.
   final int scanFrom;
@@ -131,17 +142,40 @@ class WirelessDebuggingPairer {
     return null;
   }
 
+  /// Scans the host for open ports and offers each to `adb connect` until one
+  /// becomes a ready device, retrying for [scanWindow]. A phone listens on
+  /// several ports and only one is adb's, so a port that says "connected" but
+  /// stays offline is disconnected again instead of being left behind.
   Future<String?> _connectByScanning(String host, int pairingPort) async {
-    final ports = await _scan(host, scanFrom, scanTo, {pairingPort});
-    for (final port in ports) {
-      try {
-        final message = await client
-            .connectDevice(host, port)
-            .timeout(const Duration(seconds: 5));
-        if (AdbClient.connectSucceeded(message)) return '$host:$port';
-      } catch (_) {}
-    }
+    final deadline = DateTime.now().add(scanWindow);
+    do {
+      final ports = await _scan(host, scanFrom, scanTo, {pairingPort});
+      for (final port in ports) {
+        final serial = '$host:$port';
+        try {
+          final message = await client
+              .connectDevice(host, port)
+              .timeout(const Duration(seconds: 5));
+          if (!AdbClient.connectSucceeded(message)) continue;
+          if (await _awaitReady(serial)) return serial;
+          await client.disconnectDevice(host, port);
+        } catch (_) {}
+      }
+      await Future<void>.delayed(scanRetryInterval);
+    } while (DateTime.now().isBefore(deadline));
     return null;
+  }
+
+  Future<bool> _awaitReady(String serial) async {
+    final deadline = DateTime.now().add(readyWait);
+    do {
+      try {
+        final devices = await client.devices();
+        if (devices.any((d) => d.serial == serial && d.isReady)) return true;
+      } catch (_) {}
+      await Future<void>.delayed(pollInterval);
+    } while (DateTime.now().isBefore(deadline));
+    return false;
   }
 }
 

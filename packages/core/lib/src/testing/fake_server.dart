@@ -16,6 +16,8 @@ class FakeAdbServer {
       '192.168.1.0/24 dev wlan0 proto kernel scope link src 192.168.1.42\n';
   String _serialNumber = 'FAKESERIAL';
   String? _pairReply;
+  bool _connectListsDevices = false;
+  final _offlineConnects = <String>{};
   bool _stallPairReplies = false;
 
   int get port => _server.port;
@@ -79,6 +81,9 @@ class FakeAdbServer {
     }
     if (service.startsWith('host:connect:')) {
       final address = service.substring('host:connect:'.length);
+      if (_connectListsDevices && !_offlineConnects.contains(address)) {
+        _devicesPayload = '$_devicesPayload$address\tdevice\n';
+      }
       _okayWithPayload(socket, 'connected to $address');
       _end(socket);
       return false;
@@ -195,6 +200,14 @@ class FakeAdbServer {
   /// Sets what `shell:ip route` returns from now on. An empty string models a
   /// phone with no WiFi address (WiFi off, or the phone is the hotspot).
   void setIpRoute(String output) => _ipRouteOutput = output;
+
+  /// When true, a successful `host:connect` adds the address to the device
+  /// list as `device`, like the real server (off by default).
+  void connectListsDevices(bool value) => _connectListsDevices = value;
+
+  /// `host:connect` to [address] says "connected" but the device never leaves
+  /// the list as offline, like a port that is open but is not adb's.
+  void connectStaysOffline(String address) => _offlineConnects.add(address);
 
   /// What `host:pair` answers from now on (null = a success message).
   void setPairReply(String? reply) => _pairReply = reply;
