@@ -68,6 +68,20 @@ void main() {
     expect(scanned, isFalse);
   });
 
+  test('a phone already connected as ip:port counts, with no scan', () async {
+    adb.setDevices('192.168.1.8:35253\tdevice\n');
+    var scanned = false;
+
+    await pairer(scan: (h, f, t, s) async {
+      scanned = true;
+      return [];
+    }).pair('192.168.1.8:37123', '123456', onStatus: onStatus);
+
+    expect(stages, ['pairing', 'searching', 'connected']);
+    expect(details.last, '192.168.1.8:35253');
+    expect(scanned, isFalse);
+  });
+
   test('otherwise the host is scanned and the open port is connected',
       () async {
     String? scannedHost;

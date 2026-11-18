@@ -105,9 +105,9 @@ class WirelessDebuggingPairer {
       }
 
       onStatus(PairingStages.searching);
-      final host = address.substring(0, address.lastIndexOf(':'));
       final pairingPort = int.parse(address.substring(address.lastIndexOf(':') + 1));
-      final serial = await _awaitAutoConnect(result.guid) ??
+      final host = address.substring(0, address.lastIndexOf(':'));
+      final serial = await _awaitAutoConnect(host, result.guid) ??
           await _connectByScanning(host, pairingPort);
       if (serial == null) {
         onStatus(PairingStages.pairedOnly,
@@ -126,17 +126,29 @@ class WirelessDebuggingPairer {
     }
   }
 
+  /// The serial of a ready device that is this phone, if there is one: adb's
+  /// own `<guid>._adb-tls-connect._tcp` name, or any `host:port` on the phone's
+  /// address. adb or the reconnector may have connected it already.
+  Future<String?> _readyPhone(String host, String? guid) async {
+    try {
+      for (final d in await client.devices()) {
+        if (!d.isReady) continue;
+        if (d.serial.startsWith('$host:')) return d.serial;
+        if (guid != null && d.serial == '$guid._adb-tls-connect._tcp') {
+          return d.serial;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
   /// adb may connect to a freshly paired phone itself (through mDNS). Waits
   /// briefly for that, returning the serial it appeared under.
-  Future<String?> _awaitAutoConnect(String? guid) async {
-    if (guid == null) return null;
-    final serial = '$guid._adb-tls-connect._tcp';
+  Future<String?> _awaitAutoConnect(String host, String? guid) async {
     final deadline = DateTime.now().add(autoConnectWait);
     while (DateTime.now().isBefore(deadline)) {
-      try {
-        final devices = await client.devices();
-        if (devices.any((d) => d.serial == serial && d.isReady)) return serial;
-      } catch (_) {}
+      final serial = await _readyPhone(host, guid);
+      if (serial != null) return serial;
       await Future<void>.delayed(pollInterval);
     }
     return null;
@@ -149,6 +161,8 @@ class WirelessDebuggingPairer {
   Future<String?> _connectByScanning(String host, int pairingPort) async {
     final deadline = DateTime.now().add(scanWindow);
     do {
+      final already = await _readyPhone(host, null);
+      if (already != null) return already;
       final ports = await _scan(host, scanFrom, scanTo, {pairingPort});
       for (final port in ports) {
         final serial = '$host:$port';
