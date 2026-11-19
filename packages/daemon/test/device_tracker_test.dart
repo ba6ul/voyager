@@ -67,6 +67,36 @@ void main() {
       expect(tracker.known.keys, ['FAKESERIAL']);
     });
 
+    test('is followed by a snapshot that carries its model name', () async {
+      readySignal = Completer<void>();
+      final seen = <String?>[];
+      final tracker = DeviceTracker(
+        client: AdbClient(port: server.port),
+        modelNames: modelNames,
+        modelTimeout: const Duration(milliseconds: 200),
+        onReady: (device, name) async => readySignal!.complete(),
+        onChanged: (_) => seen.add(modelNames['FAKESERIAL']),
+        log: logs.add,
+      );
+
+      tracker.handleSnapshot([_device('FAKESERIAL')]);
+      await readySignal!.future.timeout(const Duration(seconds: 2));
+
+      // The snapshot itself (no name yet), then one with the name.
+      expect(seen, [null, 'Pixel 7']);
+    });
+
+    test('sends no extra snapshot when the name was already known', () async {
+      readySignal = Completer<void>();
+      modelNames['FAKESERIAL'] = 'Pixel 7';
+      final tracker = newTracker();
+
+      tracker.handleSnapshot([_device('FAKESERIAL')]);
+      await readySignal!.future.timeout(const Duration(seconds: 2));
+
+      expect(changes, 1);
+    });
+
     test('is announced once, not again for an unchanged snapshot', () async {
       readySignal = Completer<void>();
       final tracker = newTracker();

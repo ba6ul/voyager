@@ -83,7 +83,12 @@ class DeviceTracker {
         final model = await _readModel(device.serial);
         // It may have been unplugged while we waited for the name.
         if (_known[device.serial]?.isReady != true) return;
-        if (model != null) modelNames[device.serial] = model;
+        if (model != null) {
+          final isNew = modelNames[device.serial] != model;
+          modelNames[device.serial] = model;
+          // The snapshot already went out under the serial; send the name.
+          if (isNew) onChanged?.call(_known);
+        }
         await onReady(device, model ?? device.serial);
       },
       log: _log,
